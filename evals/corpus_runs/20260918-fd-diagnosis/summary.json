@@ -1,0 +1,84 @@
+{
+  "docs": 3162,
+  "flagged_full_description_incomplete": 1173,
+  "A_failing_arm": {
+    "span_outside_and_text_missing": 2853,
+    "no_span_text_missing": 2547,
+    "fd_has_no_span": 127
+  },
+  "B_span_fidelity": {
+    "all_docs": {
+      "<0.4": 172,
+      "0.9-1.0": 2244,
+      "0.7-0.9": 640,
+      "0.4-0.7": 106
+    },
+    "flagged_docs": {
+      "<0.4": 101,
+      "0.7-0.9": 309,
+      "0.4-0.7": 43,
+      "0.9-1.0": 720
+    }
+  },
+  "C_span_union_repair": {
+    "lots": {
+      "lot_fixed": 1146,
+      "lot_not_fixed": 1057,
+      "no_spans_to_widen": 34
+    },
+    "docs_fully_cleared": 553,
+    "docs_partly_cleared": 134,
+    "docs_not_cleared": 486,
+    "docs_swallowing_terms_text": 256,
+    "docs_fully_cleared_pct": 0.471
+  },
+  "D_notice_type": {
+    "all": {
+      "multi": 1226,
+      "single": 1924,
+      "unknown": 12
+    },
+    "flagged": {
+      "multi": 631,
+      "single": 541,
+      "unknown": 1
+    },
+    "flagged_rate": {
+      "multi": 0.515,
+      "single": 0.281,
+      "unknown": 0.083
+    },
+    "flagged_fully_repairable": {
+      "multi": 245,
+      "single": 307,
+      "unknown": 1
+    }
+  },
+  "E_escaped_by_class": {
+    "identifier": 1851,
+    "location": 1168,
+    "boundary": 847,
+    "property": 753,
+    "extent": 524,
+    "schedule": 384
+  },
+  "E_escaped_by_class_and_arm": {
+    "identifier|span_outside_and_text_missing": 1346,
+    "location|no_span_text_missing": 809,
+    "identifier|no_span_text_missing": 465,
+    "boundary|no_span_text_missing": 414,
+    "property|span_outside_and_text_missing": 411,
+    "boundary|span_outside_and_text_missing": 383,
+    "location|span_outside_and_text_missing": 349,
+    "property|no_span_text_missing": 327,
+    "extent|no_span_text_missing": 312,
+    "schedule|no_span_text_missing": 220,
+    "extent|span_outside_and_text_missing": 200,
+    "schedule|span_outside_and_text_missing": 164,
+    "boundary|fd_has_no_span": 50,
+    "identifier|fd_has_no_span": 40,
+    "property|fd_has_no_span": 15,
+    "extent|fd_has_no_span": 12,
+    "location|fd_has_no_span": 10
+  }
+}
