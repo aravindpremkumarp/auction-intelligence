@@ -1,0 +1,1702 @@
+{
+  "notices": [
+    {
+      "aid": "839612",
+      "filename": "canb17863680101883.pdf",
+      "bucket": "20-39 lots",
+      "notice_type": "multi",
+      "strata": [
+        "multi"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "Canara Bank",
+          "legal_basis": "SARFAESI"
+        },
+        "identifiers": {},
+        "lots": [
+          {
+            "reserve_price_num": 5000000,
+            "district": "Salem",
+            "emd_num": 500000,
+            "taluk": "Salem",
+            "village": "Mitta Ayyamperumampatty",
+            "identifiers": {
+              "survey_old": "38/1A1",
+              "survey_new": "33",
+              "plot": "48",
+              "patta": "116"
+            }
+          },
+          {
+            "reserve_price_num": 10500000,
+            "district": "Salem",
+            "emd_num": 1050000,
+            "registration_district": "Salem (West)",
+            "registration_sub_district": "OMALUR",
+            "taluk": "Omalur",
+            "identifiers": {
+              "survey_old": "11/3A1",
+              "plot": "14",
+              "sale_deed": "5108/2011"
+            }
+          },
+          {
+            "reserve_price_num": 2650000,
+            "district": "Salem",
+            "emd_num": 265000,
+            "registration_district": "Salem West",
+            "taluk": "Kaadayampatti",
+            "village": "Marakkottai",
+            "identifiers": {
+              "patta": "1230",
+              "survey_old": "428/1D",
+              "sale_deed": "1813/2019"
+            }
+          },
+          {
+            "reserve_price_num": 1900000,
+            "emd_num": 190000,
+            "registration_district": "Dharmapuri",
+            "registration_sub_district": "Pappireddipatti",
+            "taluk": "Omalur",
+            "village": "Kanavaipudur",
+            "identifiers": {
+              "survey_old": "158/1",
+              "survey_new": "158/1A",
+              "sale_deed": "1384/2008"
+            }
+          },
+          {
+            "reserve_price_num": 2600000,
+            "district": "Salem",
+            "emd_num": 260000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Pethanaickenpalayam",
+            "taluk": "Attur",
+            "village": "Kalpaganur",
+            "identifiers": {
+              "survey_old": "139/12",
+              "survey_new": "139/12C",
+              "sale_deed": "1608/2012"
+            }
+          },
+          {
+            "reserve_price_num": 3500000,
+            "district": "Salem",
+            "emd_num": 350000,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Magudanchavadi",
+            "village": "Edanganasalai Bit-2",
+            "identifiers": {
+              "patta": "878",
+              "survey_old": "149/1"
+            }
+          },
+          {
+            "reserve_price_num": 1058000,
+            "district": "Namakkal",
+            "emd_num": 105800,
+            "registration_district": "Namakkal",
+            "registration_sub_district": "Velur",
+            "taluk": "Paramathi Velur",
+            "village": "S. Valavanthi",
+            "identifiers": {
+              "survey_old": "224",
+              "patta": "559",
+              "survey_new": "262/22"
+            }
+          },
+          {
+            "reserve_price_num": 1900000,
+            "emd_num": 190000,
+            "registration_district": "Dharmapuri",
+            "registration_sub_district": "Pappireddipatti",
+            "taluk": "Omalur",
+            "village": "Kanavaipudur",
+            "identifiers": {
+              "survey_old": "158/1A",
+              "survey_new": "158/1A2"
+            }
+          },
+          {
+            "reserve_price_num": 750000,
+            "district": "Namakkal",
+            "emd_num": 75000,
+            "registration_district": "Namakkal",
+            "registration_sub_district": "Velagoundampatty",
+            "taluk": "Namakkal",
+            "village": "Mitta Aniyaara",
+            "identifiers": {
+              "survey_old": "92/2",
+              "survey_new": "249/15"
+            }
+          },
+          {
+            "reserve_price_num": 6500000,
+            "district": "Namakkal",
+            "emd_num": 650000,
+            "registration_district": "Namakkal",
+            "taluk": "Namakkal",
+            "identifiers": {
+              "block": "5"
+            }
+          },
+          {
+            "reserve_price_num": 67500000,
+            "district": "Salem",
+            "emd_num": 6750000,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Tharamangalam",
+            "taluk": "Omalur",
+            "village": "Konagapadi",
+            "identifiers": {
+              "survey_old": "191/2A3"
+            }
+          },
+          {
+            "reserve_price_num": 8442000,
+            "district": "Salem",
+            "emd_num": 844200,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Tharamangalam",
+            "taluk": "Omalur",
+            "village": "Desa Vilakku North",
+            "identifiers": {
+              "survey_old": "329/3A",
+              "patta": "2450"
+            }
+          },
+          {
+            "reserve_price_num": 1530000,
+            "district": "Salem",
+            "emd_num": 153000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Valapadi",
+            "taluk": "Attur",
+            "village": "Thamarayanur",
+            "identifiers": {
+              "survey_new": "86/7"
+            }
+          },
+          {
+            "reserve_price_num": 4307000,
+            "district": "Salem",
+            "emd_num": 430700,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Pethanayakenpalayam",
+            "taluk": "Pethanayakenpalayam",
+            "village": "Edayapatti",
+            "identifiers": {
+              "survey_old": "508/3"
+            }
+          },
+          {
+            "reserve_price_num": 1600000,
+            "district": "Salem",
+            "emd_num": 160000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Pathanaickenpalayam",
+            "taluk": "Attur",
+            "village": "Kalpaganur",
+            "identifiers": {
+              "survey_old": "297/2A1",
+              "survey_new": "433/6",
+              "sale_deed": "888/2010"
+            }
+          },
+          {
+            "reserve_price_num": 1400000,
+            "emd_num": 140000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Vazhapadi",
+            "taluk": "Vazhapadi",
+            "village": "Sarkar Vazhapadi",
+            "identifiers": {
+              "survey_old": "71/3",
+              "survey_new": "250/9",
+              "patta": "316"
+            }
+          },
+          {
+            "reserve_price_num": 3523000,
+            "district": "Salem",
+            "emd_num": 352300,
+            "registration_district": "Salem (East)",
+            "registration_sub_district": "PETHANAICKEN PALYAM",
+            "taluk": "Attur",
+            "village": "Kalpaganur",
+            "identifiers": {
+              "survey_old": "386/6"
+            }
+          },
+          {
+            "reserve_price_num": 1700000,
+            "district": "Salem",
+            "emd_num": 170000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Attur",
+            "taluk": "Attur",
+            "village": "Ammampalayam",
+            "identifiers": {
+              "survey_new": "261/98",
+              "survey_old": "261/1"
+            }
+          },
+          {
+            "reserve_price_num": 2040000,
+            "district": "Salem",
+            "emd_num": 204000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Attur",
+            "taluk": "Attur",
+            "village": "Mullaivadi",
+            "identifiers": {
+              "survey_old": "178/3",
+              "door_new": "38/82C",
+              "door_old": "82C",
+              "block": "B"
+            }
+          },
+          {
+            "reserve_price_num": 2425000,
+            "district": "Salem",
+            "emd_num": 242500,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Joint 1",
+            "village": "Ammapetai",
+            "identifiers": {
+              "survey_old": "52",
+              "block": "31"
+            }
+          },
+          {
+            "reserve_price_num": 2300000,
+            "district": "Salem",
+            "emd_num": 230000,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Sankari",
+            "taluk": "Sankari",
+            "village": "Annathanapatti",
+            "identifiers": {
+              "survey_old": "80/1",
+              "survey_new": "186/1"
+            }
+          },
+          {
+            "reserve_price_num": 2142800,
+            "district": "Salem",
+            "emd_num": 214280,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Mettur",
+            "taluk": "Mettur",
+            "village": "Dinnapatti",
+            "identifiers": {
+              "survey_old": "320/3",
+              "survey_new": "320/21",
+              "patta": "12",
+              "door_new": "1/70-1"
+            }
+          },
+          {
+            "reserve_price_num": 1253000,
+            "district": "Salem",
+            "emd_num": 125300,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Mettur",
+            "taluk": "Mettur",
+            "village": "Lakkampatti",
+            "identifiers": {
+              "survey_old": "203",
+              "survey_new": "560/3",
+              "patta": "986"
+            }
+          },
+          {
+            "reserve_price_num": 2750000,
+            "district": "Salem",
+            "emd_num": 275000,
+            "registration_district": "Salem East",
+            "taluk": "Salem",
+            "village": "Thathampatty",
+            "identifiers": {
+              "survey_old": "185/4",
+              "block": "27"
+            }
+          },
+          {
+            "reserve_price_num": 975000,
+            "district": "Namakkal",
+            "emd_num": 97500,
+            "registration_district": "Namakkal",
+            "registration_sub_district": "Velagundampatty",
+            "taluk": "Tiruchengode",
+            "village": "Akkalamppatti",
+            "identifiers": {
+              "survey_old": "398",
+              "patta": "406"
+            }
+          },
+          {
+            "reserve_price_num": 750000,
+            "district": "Salem",
+            "emd_num": 75000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Thammampatti",
+            "taluk": "Gangavalli",
+            "village": "Nagiampatti",
+            "identifiers": {
+              "patta": "1066",
+              "survey_old": "229/2B1",
+              "survey_new": "478/32"
+            }
+          },
+          {
+            "reserve_price_num": 18300000,
+            "district": "Salem",
+            "emd_num": 1830000,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Suramangalam",
+            "taluk": "Salem",
+            "village": "Alagapuram Pudur",
+            "identifiers": {
+              "survey_old": "135/8",
+              "survey_new": "135/8B"
+            }
+          },
+          {
+            "reserve_price_num": 7382000,
+            "district": "Salem",
+            "emd_num": 738200,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Salem No. 3 Joint Sub RD",
+            "village": "Elaguvampatty",
+            "identifiers": {
+              "survey_new": "32/1A"
+            }
+          },
+          {
+            "reserve_price_num": 3348000,
+            "district": "Salem",
+            "emd_num": 334800,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Thalaivasal",
+            "taluk": "Attur",
+            "village": "Manivizhundhan",
+            "identifiers": {
+              "survey_old": "363/1",
+              "survey_new": "996/5"
+            }
+          },
+          {
+            "reserve_price_num": 2055000,
+            "district": "Salem",
+            "emd_num": 205500,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Thalaivasal",
+            "taluk": "Thalaivasal",
+            "village": "Oonathur",
+            "identifiers": {
+              "survey_old": "203/3",
+              "plot": "37"
+            }
+          },
+          {
+            "reserve_price_num": 3511800,
+            "emd_num": 351180,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Gangavalli",
+            "taluk": "Gangavalli",
+            "identifiers": {
+              "survey_old": "78/1A"
+            }
+          },
+          {
+            "reserve_price_num": 4368000,
+            "district": "Salem",
+            "emd_num": 436800,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Gangavalli",
+            "taluk": "Gangavalli",
+            "village": "Gangavalli",
+            "identifiers": {
+              "survey_old": "84",
+              "door_old": "32",
+              "door_new": "33",
+              "patta": "1724"
+            }
+          },
+          {
+            "reserve_price_num": 2200000,
+            "district": "Namakkal",
+            "emd_num": 220000,
+            "registration_district": "Namakkal",
+            "registration_sub_district": "Rasipuram",
+            "taluk": "Namakkal",
+            "village": "No.3 Komarapalayam",
+            "identifiers": {
+              "survey_old": "12/1G"
+            }
+          },
+          {
+            "reserve_price_num": 800000,
+            "district": "Salem",
+            "emd_num": 80000,
+            "registration_district": "Salem East",
+            "registration_sub_district": "Gangavalli",
+            "taluk": "Gangavalli",
+            "village": "Gangavalli North Bit",
+            "identifiers": {
+              "survey_old": "81/1",
+              "survey_new": "81/1A",
+              "door_new": "38-D"
+            }
+          },
+          {
+            "reserve_price_num": 3230000,
+            "district": "Salem",
+            "emd_num": 323000,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Mettur",
+            "taluk": "Mettur",
+            "identifiers": {
+              "block": "50",
+              "survey_old": "6",
+              "patta": "457",
+              "door_new": "L.G.M. 13"
+            }
+          },
+          {
+            "reserve_price_num": 5622000,
+            "district": "Salem",
+            "emd_num": 562200,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Kolathur",
+            "taluk": "Mettur",
+            "village": "Kaveripuram",
+            "identifiers": {
+              "survey_new": "400/14",
+              "survey_old": "400/7B1A",
+              "patta": "2982"
+            }
+          }
+        ]
+      },
+      "questions": 8
+    },
+    {
+      "aid": "793561",
+      "filename": "cbii1781615010359.jpg",
+      "bucket": "tamil",
+      "notice_type": "multi",
+      "strata": [
+        "multi",
+        "html_table",
+        "tamil"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "Central Bank of India",
+          "legal_basis": "SARFAESI",
+          "possession_type": "constructive"
+        },
+        "identifiers": {},
+        "lots": [
+          {
+            "reserve_price_num": 2640000,
+            "district": "Ramanathapuram",
+            "emd_num": 264000,
+            "registration_district": "Ramanathapuram",
+            "taluk": "Thiruvadanai",
+            "village": "Thirupallakudi",
+            "identifiers": {
+              "survey_old": "224/4",
+              "patta": "600"
+            }
+          },
+          {
+            "reserve_price_num": 2640000,
+            "district": "Ramanathapuram",
+            "emd_num": 264000,
+            "registration_district": "Ramanathapuram",
+            "taluk": "Thiruvadanai",
+            "village": "Thirupallakudi",
+            "identifiers": {
+              "patta": "1855"
+            }
+          }
+        ]
+      },
+      "questions": 2
+    },
+    {
+      "aid": "855497",
+      "filename": "a2ae2fbb-fb2c-489b-ab2c-3af0d5d2771c17879667353764.jpg",
+      "bucket": "tamil",
+      "notice_type": "single",
+      "strata": [
+        "single",
+        "tamil"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "Bank of Baroda",
+          "borrower_primary": "M/s. Gajalakshmi Enterprises",
+          "district": "Thiruvallur",
+          "emd_num": 60710,
+          "legal_basis": "SARFAESI",
+          "registration_district": "Chennai South",
+          "registration_sub_district": "Kundrathur",
+          "reserve_price_num": 6071000,
+          "taluk": "Poanamalies",
+          "village": "Madhura Mettupalayam"
+        },
+        "identifiers": {
+          "patta": "5667",
+          "survey_old": "169/5C2"
+        },
+        "lots": []
+      },
+      "questions": 2
+    },
+    {
+      "aid": "822436",
+      "filename": "64f7091d-f822-4a67-ba71-55d32d3d9c9617847122191458.jpg",
+      "bucket": "poor scan",
+      "notice_type": "single",
+      "strata": [
+        "single",
+        "html_table"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "IDBI Bank Limited",
+          "borrower_primary": "Shri. E.TENNYSON PREMKUMAR",
+          "district": "Karur",
+          "emd_num": 1550000,
+          "legal_basis": "SARFAESI",
+          "possession_type": "physical",
+          "registration_district": "Karur",
+          "registration_sub_district": "Karur Joint – 1",
+          "reserve_price_num": 15500000,
+          "taluk": "Karur",
+          "village": "Puliюр"
+        },
+        "identifiers": {
+          "assessment_new": "4484 & 4485",
+          "assessment_old": "2969",
+          "door_new": "262 & 262/1",
+          "door_old": "262/105",
+          "patta": "110",
+          "sale_deed": "920/2010"
+        },
+        "lots": []
+      },
+      "questions": 2
+    },
+    {
+      "aid": "744445",
+      "filename": "EQ-2-17760732123520.jpg",
+      "bucket": "poor scan",
+      "notice_type": "multi",
+      "strata": [
+        "multi",
+        "html_table"
+      ],
+      "agreed": {
+        "fields": {
+          "legal_basis": "SARFAESI"
+        },
+        "identifiers": {},
+        "lots": [
+          {
+            "reserve_price_num": 961000,
+            "district": "Theni",
+            "emd_num": 96100,
+            "registration_district": "Dindigul",
+            "registration_sub_district": "Vathalagundu",
+            "village": "Gengovarpati",
+            "identifiers": {
+              "survey_old": "3067/2"
+            }
+          },
+          {
+            "reserve_price_num": 846000,
+            "district": "Madurai",
+            "emd_num": 84600,
+            "registration_district": "Madurai North",
+            "registration_sub_district": "Alaganatur",
+            "taluk": "Vadipatti",
+            "village": "Kalvelipatti",
+            "identifiers": {
+              "survey_old": "140/1 Part",
+              "survey_new": "140/30"
+            }
+          },
+          {
+            "reserve_price_num": 706000,
+            "district": "Theni",
+            "emd_num": 70600,
+            "registration_district": "Periyakulam",
+            "registration_sub_district": "Chinnamanur",
+            "village": "Odalpatti",
+            "identifiers": {
+              "survey_old": "238/3A"
+            }
+          },
+          {
+            "reserve_price_num": 377000,
+            "district": "Madurai",
+            "emd_num": 37700,
+            "registration_district": "Madurai South",
+            "registration_sub_district": "Usilampatti",
+            "village": "Uthappanayakannur",
+            "identifiers": {
+              "patta": "186",
+              "survey_old": "515/6",
+              "survey_new": "624/67"
+            }
+          },
+          {
+            "reserve_price_num": 326000,
+            "district": "Madurai",
+            "emd_num": 32600,
+            "registration_district": "Madurai",
+            "registration_sub_district": "Samapatham",
+            "taluk": "Madurai South",
+            "village": "Madur",
+            "identifiers": {
+              "survey_old": "304/1B1"
+            }
+          },
+          {
+            "reserve_price_num": 256000,
+            "district": "Madurai",
+            "emd_num": 25600,
+            "registration_district": "Madurai",
+            "registration_sub_district": "Usilampatti",
+            "taluk": "Usilampatti",
+            "village": "Ayyanarkulam",
+            "identifiers": {
+              "survey_old": "73/6",
+              "survey_new": "188/2"
+            }
+          },
+          {
+            "reserve_price_num": 718000,
+            "district": "Virudhunagar",
+            "emd_num": 71800,
+            "registration_district": "Virudhunagar",
+            "registration_sub_district": "Sivakasi",
+            "taluk": "Sivakasi",
+            "village": "Annapankulam",
+            "identifiers": {
+              "survey_new": "568/26"
+            }
+          },
+          {
+            "reserve_price_num": 456000,
+            "district": "Madurai",
+            "emd_num": 45600,
+            "registration_district": "Madurai South",
+            "registration_sub_district": "Kaliukudi",
+            "taluk": "Kaliukudi",
+            "village": "Iluppakulam",
+            "identifiers": {
+              "survey_new": "9/21"
+            }
+          }
+        ]
+      },
+      "questions": 1
+    },
+    {
+      "aid": "824039",
+      "filename": "AXIS-117848684066714.jpg",
+      "bucket": "stitched",
+      "notice_type": "multi",
+      "strata": [
+        "multi",
+        "html_table",
+        "apartment_uds"
+      ],
+      "agreed": {
+        "fields": {
+          "legal_basis": "SARFAESI",
+          "possession_type": "physical"
+        },
+        "identifiers": {},
+        "lots": [
+          {
+            "reserve_price_num": 3026000,
+            "emd_num": 326000,
+            "taluk": "Alandur",
+            "village": "Srinivasapuram",
+            "identifiers": {
+              "survey_old": "22/2",
+              "survey_new": "22/2A2",
+              "patta": "1151",
+              "flat": "S1"
+            }
+          },
+          {
+            "reserve_price_num": 31701000,
+            "district": "Kancheepuram",
+            "emd_num": 3170100,
+            "registration_district": "Chengalpattu",
+            "registration_sub_district": "Thiruporur",
+            "taluk": "Thiruporur",
+            "village": "Ekattur",
+            "identifiers": {
+              "survey_old": "106/4",
+              "survey_new": "106/4A1B",
+              "patta": "388",
+              "flat": "S3D",
+              "block": "PALLAVA"
+            }
+          },
+          {
+            "reserve_price_num": 1845000,
+            "district": "Chennai",
+            "emd_num": 184500,
+            "registration_district": "North Chennai",
+            "registration_sub_district": "Sembiam",
+            "taluk": "Perambur Purasaiwalkam",
+            "village": "Kolathur",
+            "identifiers": {
+              "survey_old": "109/9",
+              "flat": "2",
+              "door_new": "30/30A"
+            }
+          },
+          {
+            "reserve_price_num": 2737500,
+            "district": "Thiruvallur",
+            "emd_num": 273750,
+            "registration_district": "South Chennai",
+            "registration_sub_district": "Poonamallee",
+            "taluk": "Poonamallee",
+            "village": "Poonamallee",
+            "identifiers": {
+              "survey_old": "357",
+              "flat": "F2",
+              "plot": "13"
+            }
+          },
+          {
+            "reserve_price_num": 5432100,
+            "district": "Chennai",
+            "emd_num": 543210,
+            "registration_district": "Chennai South",
+            "registration_sub_district": "Virugambakkam",
+            "taluk": "Maduravayal",
+            "village": "Maduravoyal",
+            "identifiers": {
+              "survey_old": "346",
+              "flat": "A"
+            }
+          },
+          {
+            "reserve_price_num": 17212748,
+            "emd_num": 1721275,
+            "registration_district": "Coimbatore South",
+            "registration_sub_district": "Pollachi",
+            "taluk": "Pollachi",
+            "identifiers": {
+              "survey_old": "1287",
+              "block": "25",
+              "door_old": "39",
+              "assessment_old": "35869",
+              "assessment_new": "072/032/00269"
+            }
+          },
+          {
+            "reserve_price_num": 2890000,
+            "emd_num": 289000,
+            "registration_district": "Tiruppur",
+            "registration_sub_district": "Avinashi",
+            "taluk": "Avinashi",
+            "village": "Rakkiyapalayam",
+            "identifiers": {
+              "survey_old": "243/1",
+              "survey_new": "243/1A1"
+            }
+          },
+          {
+            "reserve_price_num": 1850000,
+            "emd_num": 185000,
+            "registration_district": "Tiruppur",
+            "registration_sub_district": "Thottipalayam",
+            "taluk": "Tiruppur",
+            "village": "Ugayanoor",
+            "identifiers": {
+              "survey_old": "356/2B",
+              "survey_new": "356/2B1",
+              "plot": "16"
+            }
+          },
+          {
+            "reserve_price_num": 3880000,
+            "district": "Karur",
+            "emd_num": 388000,
+            "registration_district": "Karur",
+            "registration_sub_district": "Chinnatharapuram",
+            "taluk": "Aravakurichi",
+            "village": "Punjaikalakurichi",
+            "identifiers": {
+              "survey_old": "573/2",
+              "plot": "15"
+            }
+          },
+          {
+            "reserve_price_num": 29600000,
+            "emd_num": 2960000,
+            "registration_district": "Nagapattinam",
+            "registration_sub_district": "Thirupoondi",
+            "taluk": "Kilvelur",
+            "village": "Thirupoondi Mela Sethi",
+            "identifiers": {
+              "survey_old": "198/2"
+            }
+          },
+          {
+            "reserve_price_num": 6000000,
+            "emd_num": 600000,
+            "registration_district": "Virudhunagar",
+            "registration_sub_district": "Virudhunagar Joint I",
+            "taluk": "Virudhunagar",
+            "village": "Rosalpatti",
+            "identifiers": {
+              "survey_old": "17/46"
+            }
+          },
+          {
+            "reserve_price_num": 731100,
+            "district": "Theni",
+            "emd_num": 73110,
+            "registration_district": "Periyakulam",
+            "registration_sub_district": "Kadamalaikundu",
+            "village": "Megamalai",
+            "identifiers": {
+              "survey_old": "488/2",
+              "patta": "2666"
+            }
+          }
+        ]
+      },
+      "questions": 8
+    },
+    {
+      "aid": "854000",
+      "filename": "axis-1-17878262283510.jpg",
+      "bucket": "stitched",
+      "notice_type": "multi",
+      "strata": [
+        "multi",
+        "html_table",
+        "apartment_uds"
+      ],
+      "agreed": {
+        "fields": {
+          "legal_basis": "SARFAESI",
+          "possession_type": "physical"
+        },
+        "identifiers": {},
+        "lots": [
+          {
+            "reserve_price_num": 5063000,
+            "district": "Tiruchirapalli",
+            "emd_num": 506300,
+            "registration_district": "Tiruchirapalli",
+            "registration_sub_district": "Tiruchirapalli Joint-3",
+            "taluk": "Srengam",
+            "village": "Kambarasampettai"
+          },
+          {
+            "reserve_price_num": 1635000,
+            "emd_num": 163500,
+            "registration_district": "Salem West",
+            "registration_sub_district": "Jalagandapuram",
+            "taluk": "Mettur",
+            "village": "Surapalli",
+            "identifiers": {
+              "survey_old": "98/5B",
+              "patta": "1299",
+              "survey_new": "98/5B1A"
+            }
+          },
+          {
+            "reserve_price_num": 885000,
+            "emd_num": 88500,
+            "registration_district": "Dindigul",
+            "registration_sub_district": "Batlagundu",
+            "taluk": "Nilakottai",
+            "village": "Batlagundu",
+            "identifiers": {
+              "survey_old": "908/10",
+              "survey_new": "908/35",
+              "patta": "2749"
+            }
+          },
+          {
+            "reserve_price_num": 2163000,
+            "district": "Thiruvallur",
+            "emd_num": 216300,
+            "registration_district": "North Chennai",
+            "registration_sub_district": "Ambattur",
+            "taluk": "Ambattur",
+            "village": "Thirumullaivoyal",
+            "identifiers": {
+              "plot": "4",
+              "survey_old": "734/2",
+              "survey_new": "734/2A3",
+              "patta": "4997"
+            }
+          },
+          {
+            "reserve_price_num": 1905000,
+            "district": "Thiruvallur",
+            "emd_num": 190500,
+            "registration_district": "North Chennai",
+            "registration_sub_district": "Ambattur",
+            "taluk": "Avadi",
+            "village": "Thirumullaivoyal",
+            "identifiers": {
+              "plot": "9",
+              "survey_old": "17/2",
+              "block": "119",
+              "flat": "A3",
+              "door_old": "51",
+              "door_new": "16"
+            }
+          },
+          {
+            "reserve_price_num": 2552000,
+            "district": "Thiruvallur",
+            "emd_num": 255200,
+            "registration_district": "Chennai North",
+            "registration_sub_district": "Ambattur",
+            "taluk": "Ambattur",
+            "village": "Oragadam",
+            "identifiers": {
+              "plot": "52",
+              "survey_old": "102/1",
+              "patta": "2935",
+              "door_new": "13"
+            }
+          },
+          {
+            "reserve_price_num": 1095000,
+            "district": "Pudukkottai",
+            "emd_num": 109500,
+            "registration_district": "Pudukkottai",
+            "registration_sub_district": "Illuppur",
+            "taluk": "Illuppur",
+            "village": "Matharampatti",
+            "identifiers": {
+              "flat": "F2"
+            }
+          },
+          {
+            "reserve_price_num": 411600,
+            "emd_num": 41160,
+            "registration_district": "Periakulam",
+            "registration_sub_district": "Thevaram",
+            "village": "T. Meenakshipuram",
+            "identifiers": {
+              "survey_old": "192/6",
+              "plot": "28"
+            }
+          },
+          {
+            "reserve_price_num": 4659000,
+            "district": "Chengalpet",
+            "emd_num": 465900,
+            "registration_district": "Chennai South",
+            "registration_sub_district": "Pammal",
+            "taluk": "Pallavaram",
+            "village": "Anakaputhur",
+            "identifiers": {
+              "flat": "S-1",
+              "survey_old": "270/2",
+              "survey_new": "270/1A1A/2"
+            }
+          },
+          {
+            "reserve_price_num": 2969000,
+            "emd_num": 296900,
+            "registration_district": "Tenkasi",
+            "registration_sub_district": "Melaneelithanallur",
+            "taluk": "Sankarankoil",
+            "village": "Keezhaneelithanallur"
+          },
+          {
+            "reserve_price_num": 3455000,
+            "district": "Kancheepuram",
+            "emd_num": 345500,
+            "registration_sub_district": "Kundrathur",
+            "taluk": "Sriperumbudur",
+            "village": "Kundrathur"
+          }
+        ]
+      },
+      "questions": 6
+    },
+    {
+      "aid": "811768",
+      "filename": "36b6aa1e-0f6b-4be2-885e-95a4ae91cc2817835889129474.jpg",
+      "bucket": "table, missed lots",
+      "notice_type": "multi",
+      "strata": [
+        "multi",
+        "html_table"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "CHOLAMANDALAM INVESTMENT AND FINANCE COMPANY LIMITED",
+          "legal_basis": "SARFAESI",
+          "possession_type": "constructive"
+        },
+        "identifiers": {},
+        "lots": [
+          {
+            "reserve_price_num": 2910438,
+            "district": "Pudukkottai",
+            "registration_district": "Karakudi",
+            "registration_sub_district": "Ponnamaravathi",
+            "taluk": "Ponnamaravathi",
+            "village": "Arasamali",
+            "identifiers": {
+              "patta": "1443",
+              "survey_old": "299/16",
+              "survey_new": "299/6"
+            }
+          },
+          {
+            "reserve_price_num": 4233113,
+            "district": "Erode",
+            "registration_district": "Erode",
+            "registration_sub_district": "Perundurai",
+            "taluk": "Perunthurai",
+            "village": "Kambulimpatti",
+            "identifiers": {
+              "survey_new": "289/1",
+              "plot": "7"
+            }
+          },
+          {
+            "reserve_price_num": 2091312,
+            "district": "Pudukkottai",
+            "registration_district": "Pudukkottai",
+            "registration_sub_district": "Kulathur",
+            "taluk": "Kulathur",
+            "village": "Odagampilla",
+            "identifiers": {
+              "survey_old": "314/2D"
+            }
+          },
+          {
+            "reserve_price_num": 2685684,
+            "district": "Erode",
+            "emd_num": 268568,
+            "registration_district": "Erode",
+            "registration_sub_district": "Anthiyur",
+            "taluk": "Anthiyur",
+            "village": "Anthiyur",
+            "identifiers": {
+              "survey_new": "968/2A",
+              "door_new": "117"
+            }
+          },
+          {
+            "reserve_price_num": 2214337,
+            "district": "Thiruvannamalai",
+            "registration_district": "Cheyyar",
+            "registration_sub_district": "Keezhdokunkalur",
+            "taluk": "Vandavasi",
+            "village": "Venmanthai",
+            "identifiers": {
+              "survey_old": "130/6"
+            }
+          }
+        ]
+      },
+      "questions": 3
+    },
+    {
+      "aid": "748132",
+      "filename": "6b5c24d4-fce4-4d5a-82ea-6bf2da6d5beb17764271651889.jpg",
+      "bucket": "table, missed lots",
+      "notice_type": "multi",
+      "strata": [
+        "multi",
+        "html_table"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "Indian Bank",
+          "legal_basis": "SARFAESI",
+          "possession_type": "symbolic"
+        },
+        "identifiers": {},
+        "lots": [
+          {
+            "reserve_price_num": 961000,
+            "district": "Theni",
+            "emd_num": 96100,
+            "registration_sub_district": "Theni",
+            "taluk": "Theni",
+            "village": "Veerapandi",
+            "identifiers": {
+              "survey_old": "1585/2D",
+              "plot": "17A"
+            }
+          },
+          {
+            "reserve_price_num": 2238000,
+            "district": "Theni",
+            "emd_num": 223800,
+            "registration_sub_district": "Theni",
+            "taluk": "Theni",
+            "village": "Veerapandi",
+            "identifiers": {
+              "survey_old": "1585/2A",
+              "plot": "9"
+            }
+          }
+        ]
+      },
+      "questions": 2
+    },
+    {
+      "aid": "771679",
+      "filename": "city-2-17791248282954.jpg",
+      "bucket": "single, table",
+      "notice_type": "single",
+      "strata": [
+        "single",
+        "html_table"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "City Union Bank Limited",
+          "borrower_primary": "M/s.Om Muruga Enterprises, (Represented By its Proprietrix Mrs.Selvarani)",
+          "district": "Thiruvallur",
+          "legal_basis": "SARFAESI",
+          "registration_district": "Kancheepuram",
+          "registration_sub_district": "Manavala Nagar",
+          "reserve_price_num": 10300000,
+          "taluk": "Thiruvallur",
+          "village": "Vengathur"
+        },
+        "identifiers": {
+          "approved_layout": "3/2003",
+          "patta": "5090",
+          "plot": "4",
+          "survey_new": "264/1A1C1",
+          "survey_old": "264"
+        },
+        "lots": []
+      },
+      "questions": 0
+    },
+    {
+      "aid": "812713",
+      "filename": "kvb17836755941553.png",
+      "bucket": "single, short description",
+      "notice_type": "single",
+      "strata": [
+        "single",
+        "html_table"
+      ],
+      "agreed": {
+        "fields": {
+          "bank_name": "The Karur Vysya Bank Limited",
+          "district": "Salem",
+          "emd_num": 320000,
+          "legal_basis": "SARFAESI",
+          "registration_district": "Salem West",
+          "registration_sub_district": "Sankari",
+          "reserve_price_num": 3200000,
+          "taluk": "Sankari",
+          "village": "Sankari"
+        },
+        "identifiers": {
+          "patta": "1518",
+          "sale_deed": "486/2009",
+          "survey_old": "286/3"
+        },
+        "lots": []
+      },
+      "questions": 3
+    }
+  ],
+  "questions": [
+    {
+      "id": "839612:lot:10500000:village",
+      "aid": "839612",
+      "scope": "lot:10500000",
+      "key": "village",
+      "label": "Village",
+      "lot": "lot with reserve ₹10,500,000",
+      "a": "Kottamettupatti",
+      "b": "Kottameṭṭupatti",
+      "quote_a": "located at Salem District, Salem (West) Registration District, OMALUR Sub-Registration District, Omalur Taluk, Kottamettupatti Village",
+      "quote_b": "located at Salem District, Salem (West) Registration District, OMALUR Sub-Registration District, Omalur Taluk, Kottameṭṭupatti Village"
+    },
+    {
+      "id": "839612:lot:1900000:district",
+      "aid": "839612",
+      "scope": "lot:1900000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹1,900,000",
+      "a": "Dharmapuri",
+      "b": null,
+      "quote_a": "located in Dharmapuri Registration District, Pappireddipatti Sub - Registration District, Omalur Taluk, Kanavaipudur Village",
+      "quote_b": ""
+    },
+    {
+      "id": "839612:lot:3500000:taluk",
+      "aid": "839612",
+      "scope": "lot:3500000",
+      "key": "taluk",
+      "label": "Taluk",
+      "lot": "lot with reserve ₹3,500,000",
+      "a": null,
+      "b": "Sankari Taluk",
+      "quote_a": "",
+      "quote_b": "Salem District, Salem West Registration District, Magudanchavadi Sub Registration District, Edanganasalai Bit-2 Village"
+    },
+    {
+      "id": "839612:lot:1900000:district",
+      "aid": "839612",
+      "scope": "lot:1900000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹1,900,000",
+      "a": "Dharmapuri",
+      "b": null,
+      "quote_a": "located in Dharmapuri Registration District, Pappireddipatti Sub - Registration District, Omalur Taluk, Kanavaipudur Village",
+      "quote_b": ""
+    },
+    {
+      "id": "839612:lot:1400000:district",
+      "aid": "839612",
+      "scope": "lot:1400000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹1,400,000",
+      "a": "Salem",
+      "b": null,
+      "quote_a": "in Salem East RD, Vazhapadi SRD, Vazhapadi Taluk, Sarkar Vazhapadi Village",
+      "quote_b": ""
+    },
+    {
+      "id": "839612:lot:3511800:district",
+      "aid": "839612",
+      "scope": "lot:3511800",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹3,511,800",
+      "a": "Salem",
+      "b": null,
+      "quote_a": "Salem East RD, Gangavalli Sub RD, Gangavalli Taluk, Gangavalli Village (North Bit)",
+      "quote_b": ""
+    },
+    {
+      "id": "839612:lot:3511800:village",
+      "aid": "839612",
+      "scope": "lot:3511800",
+      "key": "village",
+      "label": "Village",
+      "lot": "lot with reserve ₹3,511,800",
+      "a": "Gangavalli (North Bit)",
+      "b": "Gangavalli",
+      "quote_a": "Salem East RD, Gangavalli Sub RD, Gangavalli Taluk, Gangavalli Village (North Bit)",
+      "quote_b": "Salem East RD, Gangavalli Sub RD, Gangavalli Taluk, Gangavalli Village (North Bit)"
+    },
+    {
+      "id": "839612:lot:3230000:village",
+      "aid": "839612",
+      "scope": "lot:3230000",
+      "key": "village",
+      "label": "Village",
+      "lot": "lot with reserve ₹3,230,000",
+      "a": null,
+      "b": "Mettur Town",
+      "quote_a": "",
+      "quote_b": "Salem District, Salem West Registration District, Mettur Sub Registration District, Mettur Taluk, Mettur Municipality Area, Mettur Town, Salem Camp"
+    },
+    {
+      "id": "793561:lot:2640000:registration_sub_district",
+      "aid": "793561",
+      "scope": "lot:2640000",
+      "key": "registration_sub_district",
+      "label": "Sub-registrar office",
+      "lot": "lot with reserve ₹2,640,000",
+      "a": "No. II Joint SRO",
+      "b": "No. II Joint SRO, Ramanathapuram",
+      "quote_a": "In Ramanathapuram Registration District, Ramanathapuram District and Thiruvadanai Taluk, No. II Joint SRO, Ramanathapuram, Thirupallakudi Group and Thirupallakudi Village",
+      "quote_b": "In Ramanathapuram Registration District, Ramanathapuram District and Thiruvadanai Taluk, No. II Joint SRO, Ramanathapuram, Thirupallakudi Group and Thirupallakudi Village"
+    },
+    {
+      "id": "793561:lot:2640000:registration_sub_district",
+      "aid": "793561",
+      "scope": "lot:2640000",
+      "key": "registration_sub_district",
+      "label": "Sub-registrar office",
+      "lot": "lot with reserve ₹2,640,000",
+      "a": "No. II Joint SRO",
+      "b": "No. II Joint SRO, Ramanathapuram",
+      "quote_a": "In Ramanathapuram Registration District, Ramanathapuram District and Thiruvadanai Taluk, No. II Joint SRO, Ramanathapuram, Thirupallakudi Group and Thirupallakudi Village",
+      "quote_b": "In Ramanathapuram Registration District, Ramanathapuram District and Thiruvadanai Taluk, No. II Joint SRO, Ramanathapuram, Thirupallakudi Group and Thirupallakudi Village"
+    },
+    {
+      "id": "855497:fields:possession_type",
+      "aid": "855497",
+      "scope": "fields",
+      "key": "possession_type",
+      "label": "Possession",
+      "lot": null,
+      "a": "constructive",
+      "b": "symbolic",
+      "quote_a": "All that piece and parcel of Vacant land comprised in Survey No. 169/5C2, Patta No. 5667, Patta wise Survey No. 169/5C2B",
+      "quote_b": "Vacant land"
+    },
+    {
+      "id": "855497:identifiers:survey_new",
+      "aid": "855497",
+      "scope": "identifiers",
+      "key": "survey_new",
+      "label": "survey new",
+      "lot": null,
+      "a": "169/5C2B",
+      "b": null,
+      "quote_a": "Patta wise Survey No. 169/5C2B",
+      "quote_b": ""
+    },
+    {
+      "id": "822436:identifiers:survey_new",
+      "aid": "822436",
+      "scope": "identifiers",
+      "key": "survey_new",
+      "label": "survey new",
+      "lot": null,
+      "a": "1651/C1",
+      "b": "1651 / C1",
+      "quote_a": "S. F. No. 1651 / C1",
+      "quote_b": "S. F. No. 1651 / C1"
+    },
+    {
+      "id": "822436:identifiers:survey_old",
+      "aid": "822436",
+      "scope": "identifiers",
+      "key": "survey_old",
+      "label": "survey old",
+      "lot": null,
+      "a": "1651/C",
+      "b": "1651 / C",
+      "quote_a": "S.F.No. 1651 / C",
+      "quote_b": "S.F.No. 1651 / C"
+    },
+    {
+      "id": "744445:fields:bank_name",
+      "aid": "744445",
+      "scope": "fields",
+      "key": "bank_name",
+      "label": "Bank",
+      "lot": null,
+      "a": "Equitas Small Finance Bank",
+      "b": "Equitas small finance Bank",
+      "quote_a": "Equitas small finance Bank, Secured Creditor",
+      "quote_b": "Equitas small finance Bank"
+    },
+    {
+      "id": "824039:fields:bank_name",
+      "aid": "824039",
+      "scope": "fields",
+      "key": "bank_name",
+      "label": "Bank",
+      "lot": null,
+      "a": "Axis Bank Ltd",
+      "b": "AXIS BANK LTD",
+      "quote_a": "AXIS BANK LTD",
+      "quote_b": "AXIS BANK LTD"
+    },
+    {
+      "id": "824039:lot:3026000:district",
+      "aid": "824039",
+      "scope": "lot:3026000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹3,026,000",
+      "a": "Kancheepuram",
+      "b": "Kanchipuram",
+      "quote_a": "Srinivasapuram Village, Alandur Taluk, Kanchipuram District",
+      "quote_b": "in situated at Srinivasapuram Village, Alandur Taluk, Kanchipuram District"
+    },
+    {
+      "id": "824039:lot:17212748:district",
+      "aid": "824039",
+      "scope": "lot:17212748",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹17,212,748",
+      "a": "Coimbatore",
+      "b": null,
+      "quote_a": "Pollachi Town, Pollachi Taluk, Coimbatore District",
+      "quote_b": ""
+    },
+    {
+      "id": "824039:lot:17212748:village",
+      "aid": "824039",
+      "scope": "lot:17212748",
+      "key": "village",
+      "label": "Village",
+      "lot": "lot with reserve ₹17,212,748",
+      "a": "Jamin Kottampatti",
+      "b": "Zamin Kottampatti Vlg",
+      "quote_a": "Jamin Kottampatti Village, Pollachi Taluk, Coimbatore",
+      "quote_b": "situated in Coimbatore South Registration District (Previously Tirupur Registration District), Pollachi Sub Registration District Pollachi Taluk, Pollachi Town"
+    },
+    {
+      "id": "824039:lot:2890000:district",
+      "aid": "824039",
+      "scope": "lot:2890000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹2,890,000",
+      "a": "Tiruppur",
+      "b": null,
+      "quote_a": "Rakkiyapalayam Village, Avinashi Taluk, Tiruppur District",
+      "quote_b": ""
+    },
+    {
+      "id": "824039:lot:1850000:district",
+      "aid": "824039",
+      "scope": "lot:1850000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹1,850,000",
+      "a": "Tiruppur",
+      "b": null,
+      "quote_a": "Ugayanoor Village, Tiruppur Taluk, Tiruppur District",
+      "quote_b": ""
+    },
+    {
+      "id": "824039:lot:29600000:district",
+      "aid": "824039",
+      "scope": "lot:29600000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹29,600,000",
+      "a": "Nagapattinam",
+      "b": null,
+      "quote_a": "Thirupoondi Mela Sethi Village, Kilvelur Taluk, Nagapattinam District",
+      "quote_b": ""
+    },
+    {
+      "id": "824039:lot:6000000:district",
+      "aid": "824039",
+      "scope": "lot:6000000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹6,000,000",
+      "a": "Virudhunagar",
+      "b": null,
+      "quote_a": "Rosalpatti Village, Virudhunagar Taluk, Virudhunagar District",
+      "quote_b": ""
+    },
+    {
+      "id": "854000:fields:bank_name",
+      "aid": "854000",
+      "scope": "fields",
+      "key": "bank_name",
+      "label": "Bank",
+      "lot": null,
+      "a": "Axis Bank Ltd",
+      "b": "AXIS BANK LTD",
+      "quote_a": "Axis Bank Ltd",
+      "quote_b": "AXIS BANK LTD"
+    },
+    {
+      "id": "854000:lot:885000:district",
+      "aid": "854000",
+      "scope": "lot:885000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹885,000",
+      "a": "Dindigul",
+      "b": null,
+      "quote_a": "Batlagundu Village, Dindigul Registration District, Batlagundu Sub Registration District, Nilakottai Taluk",
+      "quote_b": ""
+    },
+    {
+      "id": "854000:lot:411600:district",
+      "aid": "854000",
+      "scope": "lot:411600",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹411,600",
+      "a": "Theni",
+      "b": null,
+      "quote_a": "Uthama – Palayam Taluk, T. Meenakshipuram Village",
+      "quote_b": ""
+    },
+    {
+      "id": "854000:lot:411600:taluk",
+      "aid": "854000",
+      "scope": "lot:411600",
+      "key": "taluk",
+      "label": "Taluk",
+      "lot": "lot with reserve ₹411,600",
+      "a": "Uthama-Palayam",
+      "b": "Uthama – Palayam",
+      "quote_a": "Uthama – Palayam Taluk, T. Meenakshipuram Village",
+      "quote_b": "Periakulam Registration District – Thevaram Sub-Registration District- Uthama – Palayam Taluk, T. Meenakshipuram Village"
+    },
+    {
+      "id": "854000:lot:2969000:district",
+      "aid": "854000",
+      "scope": "lot:2969000",
+      "key": "district",
+      "label": "District",
+      "lot": "lot with reserve ₹2,969,000",
+      "a": "Tirunelveli",
+      "b": null,
+      "quote_a": "Keezhaneelithanallur Village, Sankarankoil Taluk",
+      "quote_b": ""
+    },
+    {
+      "id": "854000:lot:3455000:registration_district",
+      "aid": "854000",
+      "scope": "lot:3455000",
+      "key": "registration_district",
+      "label": "Registration district",
+      "lot": "lot with reserve ₹3,455,000",
+      "a": "South Chennai",
+      "b": null,
+      "quote_a": "Kundrathur Village, Sriperumbudur Taluk, Kancheepuram District",
+      "quote_b": ""
+    },
+    {
+      "id": "811768:lot:2214337:emd_num",
+      "aid": "811768",
+      "scope": "lot:2214337",
+      "key": "emd_num",
+      "label": "EMD",
+      "lot": "lot with reserve ₹2,214,337",
+      "a": 221433,
+      "b": 221434,
+      "quote_a": "",
+      "quote_b": "Rs. 22,14,337/-(RupeesTwenty Two lakhFourteen ThousandThree Hundred ThirtySeven Only)"
+    },
+    {
+      "id": "811768:lot:3105973:real_lot",
+      "aid": "811768",
+      "scope": "lot:3105973",
+      "key": "real_lot",
+      "label": "real lot",
+      "lot": "lot with reserve ₹3,105,973",
+      "a": {
+        "reserve_price_num": 3105973,
+        "village": "Udumalpi",
+        "taluk": "Udumalpi",
+        "registration_district": "Truppur",
+        "registration_sub_district": "Udumalpiep",
+        "identifiers": {
+          "survey_old": "71/B",
+          "door_new": "4/321-A",
+          "plot": "20"
+        }
+      },
+      "b": null,
+      "quote_a": "",
+      "quote_b": ""
+    },
+    {
+      "id": "811768:lot:3105974:real_lot",
+      "aid": "811768",
+      "scope": "lot:3105974",
+      "key": "real_lot",
+      "label": "real lot",
+      "lot": "lot with reserve ₹3,105,974",
+      "a": null,
+      "b": {
+        "reserve_price_num": 3105974,
+        "village": "Udumalpi Taluk",
+        "taluk": "Udumalpi",
+        "registration_district": "Truppurol",
+        "registration_sub_district": "Udumalpet",
+        "identifiers": {
+          "survey_old": "71/B",
+          "plot": "20",
+          "door_new": "4/321-A"
+        }
+      },
+      "quote_a": "",
+      "quote_b": "Rs. 31,05,973.8/-"
+    },
+    {
+      "id": "748132:lot:961000:registration_district",
+      "aid": "748132",
+      "scope": "lot:961000",
+      "key": "registration_district",
+      "label": "Registration district",
+      "lot": "lot with reserve ₹961,000",
+      "a": "Periaakulam",
+      "b": "Periakulam",
+      "quote_a": "Periaakulam Registration District, Theni Sub District",
+      "quote_b": "In Theni District, Periakulam Registration District, Theni Sub District, Theni Taluk, Veerapandi"
+    },
+    {
+      "id": "748132:lot:2238000:registration_district",
+      "aid": "748132",
+      "scope": "lot:2238000",
+      "key": "registration_district",
+      "label": "Registration district",
+      "lot": "lot with reserve ₹2,238,000",
+      "a": "Periaakulam",
+      "b": "Periakulam",
+      "quote_a": "Periaakulam Registration District, Theni Sub District",
+      "quote_b": "In Theni District, Periakulam Registration District, Theni Sub District, Theni Taluk, Veerapandi"
+    },
+    {
+      "id": "812713:fields:borrower_primary",
+      "aid": "812713",
+      "scope": "fields",
+      "key": "borrower_primary",
+      "label": "Borrower",
+      "lot": null,
+      "a": "Mrs. Thangammal, W/o.Mr. Sivan and mother of Late Mr. Mathankumar",
+      "b": "Mathankumar. S Sole proprietor of M/s. Sri Lakhsmi Saraswathi Agencies",
+      "quote_a": "Mrs. Thangammal, W/o.Mr. Sivan and mother of Late Mr. Mathankumar",
+      "quote_b": "Mathankumar. S Sole proprietor of M/s. Sri Lakhsmi Saraswathi Agencies"
+    },
+    {
+      "id": "812713:fields:possession_type",
+      "aid": "812713",
+      "scope": "fields",
+      "key": "possession_type",
+      "label": "Possession",
+      "lot": null,
+      "a": "constructive",
+      "b": null,
+      "quote_a": "Salem District, Salem West Registration District, Sankari Sub Registration District, Sankari Taluk, Sankari Village. Ward No. 8, Padayatchi Street, Old S.F. No.286/3, R.S.F. No.286/3B4, New S.F. No.286/3B4A2, Patta No.1518",
+      "quote_b": ""
+    },
+    {
+      "id": "812713:identifiers:survey_new",
+      "aid": "812713",
+      "scope": "identifiers",
+      "key": "survey_new",
+      "label": "survey new",
+      "lot": null,
+      "a": "286/3B4",
+      "b": "286/3B4A2",
+      "quote_a": "R.S.F. No.286/3B4",
+      "quote_b": "New S.F. No.286/3B4A2"
+    }
+  ]
+}
