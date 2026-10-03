@@ -104,17 +104,15 @@ services:
     region: singapore
     schedule: "0 */6 * * *"
     buildCommand: pip install -r requirements.lock
-    startCommand: python -m pipeline.load_extractions --workers 24 --max-seconds 19800
+    startCommand: python -m pipeline.load_extractions --workers 24 --max-seconds 19800 --stale
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       # Which reader writes extraction_json (pipeline/extract_entry):
-      # langextract | v2 | shadow. "shadow" writes v1 and stores the v2 read
-      # beside it (extraction_shadow_*) for scripts/reader_shadow_report.py;
-      # flip to v2 once the report and the gold eval clear the bar, back to
-      # langextract to roll back — no deploy either way.
+      # langextract | v2 | shadow. v2 is parked (docs/reader-v2.md, "Status");
+      # the old reader stays in production.
       - key: EXTRACT_READER
-        value: shadow
+        value: langextract
       - key: LANGEXTRACT_PROVIDER
         value: openrouter
       - key: NEO4J_URI

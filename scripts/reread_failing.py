@@ -163,7 +163,7 @@ def run(docs: list[dict], reader: str, concurrency: int) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--reader", choices=("v2", "langextract"), default="v2")
+    ap.add_argument("--reader", choices=("v2", "langextract"), default="langextract")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--only", nargs="*", help="these Document.filename values only")
     ap.add_argument("--concurrency", type=int, default=2)

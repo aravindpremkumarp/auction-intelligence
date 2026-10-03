@@ -5,6 +5,20 @@ to run it, measure it, switch to it and switch back. Plan and rationale:
 `docs/extraction-pipeline-review-2026-07.md`, `docs/extraction-pipeline-audit-2026-08.md`,
 and the PR series on branch `claude/inspiring-curie-frs1rb`.
 
+## Status (2026-10-03): parked
+
+v2 is switched off (`EXTRACT_READER=langextract` in `render.yaml`); the old
+reader stays in production. On 11 notices the two readers agreed on 95% of
+key values (732 of 769, `evals/gold_sprint_v1_questions.json`), so v2 did not
+show an accuracy gain worth the switch, and it failed on a 40-lot notice
+whose scanned table is split across rows (a whole read hit `max_tokens`).
+The code stays so it can be tried again with `--reader v2` or the flag.
+
+Kept and used by the old reader: the eval harness, stable entity ids and
+carried corrections, `extraction_prev_json` + `scripts/revert_extraction.py`,
+the OCR gate, stale re-reads (`--stale` on the cron), per-model cost pricing,
+and lots numbered in the notice's order on every save.
+
 ## What it does, in one line each
 
 | step | module | guarantee |
