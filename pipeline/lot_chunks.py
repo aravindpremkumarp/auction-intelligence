@@ -546,9 +546,8 @@ def extract_chunked(markdown: str, plan: Plan,
             missing = [i for i in missing if i not in complete]
     _inherit_borrowers(markdown, plan, per_lot)
     out = notice + [e for i in sorted(per_lot) for e in per_lot[i]]
-    for i, e in enumerate(out):
-        e["id"] = str(i)
-    return out
+    from pipeline.extraction_ids import assign_ids
+    return assign_ids(out)
 
 
 def lots_read(ents: list[dict]) -> int:

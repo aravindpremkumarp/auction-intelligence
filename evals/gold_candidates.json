@@ -1,0 +1,591 @@
+[
+  {
+    "aid": "756573",
+    "filename": "HINDUJA17775574054730.jpg",
+    "score": 76,
+    "lots": 40,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "40plus_lots"
+    ],
+    "bucket": "40+ lots"
+  },
+  {
+    "aid": "789207",
+    "filename": "L84293868417811614162710.png",
+    "score": 68,
+    "lots": 40,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "40plus_lots"
+    ],
+    "bucket": "40+ lots"
+  },
+  {
+    "aid": "839612",
+    "filename": "canb17863680101883.pdf",
+    "score": 86,
+    "lots": 36,
+    "ocr": 100,
+    "reasons": [
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi"
+    ],
+    "bucket": "20-39 lots"
+  },
+  {
+    "aid": "840710",
+    "filename": "TATA-C11786518116858.jpg",
+    "score": 56,
+    "lots": 27,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "multi",
+      "html_table",
+      "stitched"
+    ],
+    "bucket": "20-39 lots"
+  },
+  {
+    "aid": "810203",
+    "filename": "Screenshot-6-7-2026-122425-178342168739.jpeg",
+    "score": 56,
+    "lots": 21,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi"
+    ],
+    "bucket": "20-39 lots"
+  },
+  {
+    "aid": "809640",
+    "filename": "Screenshot-6-7-2026-122351-17833408515362.jpeg",
+    "score": 36,
+    "lots": 28,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi",
+      "html_table"
+    ],
+    "bucket": "20-39 lots"
+  },
+  {
+    "aid": "793561",
+    "filename": "cbii1781615010359.jpg",
+    "score": 70,
+    "lots": 2,
+    "ocr": 100,
+    "reasons": [
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "tamil"
+    ],
+    "bucket": "tamil"
+  },
+  {
+    "aid": "855497",
+    "filename": "a2ae2fbb-fb2c-489b-ab2c-3af0d5d2771c17879667353764.jpg",
+    "score": 96,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "single",
+      "tamil"
+    ],
+    "bucket": "tamil"
+  },
+  {
+    "aid": "856710",
+    "filename": "ba9f5409-833f-45d2-a63e-fae46f5056ee17880824011233.jpg",
+    "score": 80,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "single",
+      "html_table",
+      "tamil"
+    ],
+    "bucket": "tamil"
+  },
+  {
+    "aid": "804697",
+    "filename": "BOB17828277895981.jpg",
+    "score": 100,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "single",
+      "tamil"
+    ],
+    "bucket": "tamil"
+  },
+  {
+    "aid": "821037",
+    "filename": "5d5c5026-1846-4564-95b2-1002e4e65b2e17845547743291.jpg",
+    "score": 50,
+    "lots": 3,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "multi",
+      "tamil"
+    ],
+    "bucket": "tamil"
+  },
+  {
+    "aid": "791340",
+    "filename": "cf9abe3d-90cd-4321-8f09-b0c62e53732117813601368453.jpg",
+    "score": 100,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "single",
+      "tamil"
+    ],
+    "bucket": "tamil"
+  },
+  {
+    "aid": "822436",
+    "filename": "64f7091d-f822-4a67-ba71-55d32d3d9c9617847122191458.jpg",
+    "score": 90,
+    "lots": 1,
+    "ocr": 60,
+    "reasons": [
+      "lot_under_recall"
+    ],
+    "strata": [
+      "single",
+      "html_table",
+      "poor_scan"
+    ],
+    "bucket": "poor scan"
+  },
+  {
+    "aid": "744445",
+    "filename": "EQ-2-17760732123520.jpg",
+    "score": 92,
+    "lots": 8,
+    "ocr": 65,
+    "reasons": [],
+    "strata": [
+      "multi",
+      "html_table",
+      "poor_scan"
+    ],
+    "bucket": "poor scan"
+  },
+  {
+    "aid": "848164",
+    "filename": "JAMMU17871444732213.jpeg",
+    "score": 100,
+    "lots": 1,
+    "ocr": 65,
+    "reasons": [],
+    "strata": [
+      "single",
+      "html_table",
+      "poor_scan"
+    ],
+    "bucket": "poor scan"
+  },
+  {
+    "aid": "754116",
+    "filename": "hinudja17772789459474.jpg",
+    "score": 96,
+    "lots": 17,
+    "ocr": 60,
+    "reasons": [],
+    "strata": [
+      "multi",
+      "html_table",
+      "poor_scan"
+    ],
+    "bucket": "poor scan"
+  },
+  {
+    "aid": "785417",
+    "filename": "5e63b05f-97cf-46a8-b130-6f2038e8141c17807325773482.jpg",
+    "score": 100,
+    "lots": 1,
+    "ocr": 60,
+    "reasons": [],
+    "strata": [
+      "single",
+      "poor_scan"
+    ],
+    "bucket": "poor scan"
+  },
+  {
+    "aid": "824486",
+    "filename": "660a1306-07f9-4669-82d0-2b7a4968a83c17848910377458.jpg",
+    "score": 60,
+    "lots": 8,
+    "ocr": 60,
+    "reasons": [],
+    "strata": [
+      "multi",
+      "html_table",
+      "poor_scan"
+    ],
+    "bucket": "poor scan"
+  },
+  {
+    "aid": "824039",
+    "filename": "AXIS-117848684066714.jpg",
+    "score": 66,
+    "lots": 9,
+    "ocr": 65,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "stitched",
+      "poor_scan"
+    ],
+    "bucket": "stitched"
+  },
+  {
+    "aid": "854000",
+    "filename": "axis-1-17878262283510.jpg",
+    "score": 66,
+    "lots": 10,
+    "ocr": 65,
+    "reasons": [
+      "full_description_incomplete",
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "stitched",
+      "poor_scan"
+    ],
+    "bucket": "stitched"
+  },
+  {
+    "aid": "751228",
+    "filename": "liq-117768686886833.jpg",
+    "score": 60,
+    "lots": 14,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "stitched"
+    ],
+    "bucket": "stitched"
+  },
+  {
+    "aid": "835229",
+    "filename": "UBI-REGN-117859326545149.jpeg",
+    "score": 66,
+    "lots": 6,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete",
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "stitched"
+    ],
+    "bucket": "stitched"
+  },
+  {
+    "aid": "865727",
+    "filename": "tata-117889453196029.jpg",
+    "score": 52,
+    "lots": 26,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "stitched"
+    ],
+    "bucket": "stitched"
+  },
+  {
+    "aid": "811768",
+    "filename": "36b6aa1e-0f6b-4be2-885e-95a4ae91cc2817835889129474.jpg",
+    "score": 50,
+    "lots": 6,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete",
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table"
+    ],
+    "bucket": "table, missed lots"
+  },
+  {
+    "aid": "748132",
+    "filename": "6b5c24d4-fce4-4d5a-82ea-6bf2da6d5beb17764271651889.jpg",
+    "score": 40,
+    "lots": 2,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete",
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table"
+    ],
+    "bucket": "table, missed lots"
+  },
+  {
+    "aid": "775339",
+    "filename": "76f9030d-c6fd-4f45-ac4f-ebc186b9a6a217795206641961.jpg",
+    "score": 66,
+    "lots": 4,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete",
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table"
+    ],
+    "bucket": "table, missed lots"
+  },
+  {
+    "aid": "776999",
+    "filename": "HINDUJA17797277553240.jpg",
+    "score": 90,
+    "lots": 3,
+    "ocr": 100,
+    "reasons": [
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table"
+    ],
+    "bucket": "table, missed lots"
+  },
+  {
+    "aid": "774349",
+    "filename": "nido1779379229583.jpg",
+    "score": 70,
+    "lots": 6,
+    "ocr": 65,
+    "reasons": [
+      "full_description_incomplete",
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table",
+      "poor_scan"
+    ],
+    "bucket": "table, missed lots"
+  },
+  {
+    "aid": "814024",
+    "filename": "yes17837742833251.jpeg",
+    "score": 86,
+    "lots": 13,
+    "ocr": 100,
+    "reasons": [
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi",
+      "html_table"
+    ],
+    "bucket": "table, missed lots"
+  },
+  {
+    "aid": "812238",
+    "filename": "yes17836052595621.jpeg",
+    "score": 80,
+    "lots": 2,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "multi"
+    ],
+    "bucket": "multi, no table"
+  },
+  {
+    "aid": "851987",
+    "filename": "CB1-2-17875734484470.jpg",
+    "score": 70,
+    "lots": 2,
+    "ocr": 100,
+    "reasons": [
+      "lot_under_recall"
+    ],
+    "strata": [
+      "multi"
+    ],
+    "bucket": "multi, no table"
+  },
+  {
+    "aid": "793037",
+    "filename": "5440bd85-0771-4901-b58f-f1dba58c623417815447066914.jpg",
+    "score": 80,
+    "lots": 3,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "multi"
+    ],
+    "bucket": "multi, no table"
+  },
+  {
+    "aid": "785460",
+    "filename": "38952916-6ba0-490d-911c-7846a6fd6a9c17807363309046.jpg",
+    "score": 80,
+    "lots": 2,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "multi"
+    ],
+    "bucket": "multi, no table"
+  },
+  {
+    "aid": "771679",
+    "filename": "city-2-17791248282954.jpg",
+    "score": 90,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "single",
+      "html_table"
+    ],
+    "bucket": "single, table"
+  },
+  {
+    "aid": "772050",
+    "filename": "UNITY17791839476817.jpg",
+    "score": 86,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [
+      "lot_under_recall"
+    ],
+    "strata": [
+      "single",
+      "html_table"
+    ],
+    "bucket": "single, table"
+  },
+  {
+    "aid": "845677",
+    "filename": "Screenshot-14-8-2026-103655-17869570547467.jpeg",
+    "score": 100,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [],
+    "strata": [
+      "single",
+      "html_table"
+    ],
+    "bucket": "single, table"
+  },
+  {
+    "aid": "812713",
+    "filename": "kvb17836755941553.png",
+    "score": 76,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "single",
+      "html_table"
+    ],
+    "bucket": "single, short description"
+  },
+  {
+    "aid": "759564",
+    "filename": "bob-117780494357291.jpg",
+    "score": 70,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "single",
+      "html_table"
+    ],
+    "bucket": "single, short description"
+  },
+  {
+    "aid": "806683",
+    "filename": "iob-2-17829954537069.jpg",
+    "score": 80,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "single"
+    ],
+    "bucket": "single, short description"
+  },
+  {
+    "aid": "792443",
+    "filename": "sri17815066174924.jpg",
+    "score": 60,
+    "lots": 1,
+    "ocr": 100,
+    "reasons": [
+      "full_description_incomplete"
+    ],
+    "strata": [
+      "single",
+      "html_table"
+    ],
+    "bucket": "single, short description"
+  }
+]

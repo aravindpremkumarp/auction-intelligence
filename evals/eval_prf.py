@@ -29,7 +29,7 @@ def _extract_all(gold) -> dict[str, list[dict]]:
     """Live-extract every fixture once, routing the model exactly like
     production (pipeline/extract_routing) instead of LangExtract's default
     LANGEXTRACT_MODEL_ID — so the eval scores the SAME model the pipeline runs
-    (single -> hy3, multi -> deepseek), not gemini."""
+    (pipeline/config OPENROUTER_MODEL_EXTRACT_*), not gemini."""
     from pipeline import langextract_run as LR
     from pipeline import langextract_examples as LX
     from pipeline.extract_routing import select_extract_model

@@ -48,12 +48,17 @@ def fake(monkeypatch):
                 if found else [_ent(i, i) for i in range(1, res.n + 1)])
     monkeypatch.setattr(R, "_entities", entities)
     monkeypatch.setattr(R, "validate_stored", lambda ents, **kw: {"score": 50})
-    monkeypatch.setattr(R, "run_query",
-                        lambda q, p=None, **kw: calls["writes"].append(p) or [])
-    ke = types.ModuleType("pipeline.key_entities")
-    ke.stamp_key_scores = lambda fns: None
-    monkeypatch.setitem(sys.modules, "pipeline.key_entities", ke)
-    monkeypatch.setattr(pipeline, "key_entities", ke, raising=False)
+    # the write is the store's now (pipeline/extraction_store); only the
+    # document write counts as a "write" here, not the run node beside it
+    import pipeline.extraction_store as ES
+    monkeypatch.setattr(ES, "validate_stored", lambda ents, **kw: {"score": 50})
+    monkeypatch.setattr(ES, "run_query",
+                        lambda q, p=None, **kw: (calls["writes"].append(p)
+                                                 if "d.extraction_json = $j" in q else None) or [])
+    monkeypatch.setattr(ES, "previous", lambda fns: {})
+    monkeypatch.setattr(ES, "clear_auto_marks", lambda fns: None)
+    monkeypatch.setattr(ES, "stamp_key_scores", lambda fns: None)
+    monkeypatch.setattr(ES, "write_marks", lambda fn, m: 0)
     return calls
 
 
@@ -107,7 +112,8 @@ def test_an_unmatched_notice_is_read_whole(fake):
 
 
 def _stored(monkeypatch, ents, text_changed=False):
-    monkeypatch.setattr(R, "_stored", lambda fn: {"entities": ents,
+    import pipeline.extraction_store as ES
+    monkeypatch.setattr(ES, "stored", lambda fn: {"entities": ents,
                                                   "text_changed": text_changed})
 
 

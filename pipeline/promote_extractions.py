@@ -601,6 +601,47 @@ def collapse_measurements(measurements: list[dict],
 
 # ── pure: entities -> per-lot records ────────────────────────────────────────
 
+#: The entity attrs that are provenance, not values (pipeline/reader).
+_PROV_KEYS = ("page", "block_id", "source", "evidence", "method", "inherited_from",
+              "anchor", "rule", "verified", "reader", "prompt_hash")
+_PROV_FIELDS = {
+    "auction_terms": ("reserve_price_num", "emd_num", "bid_increment_num", "auction_start_dt",
+                      "auction_end_dt", "application_deadline_dt", "inspection_dt"),
+    "property": ("property_type", "possession_type", "possession_date"),
+    "location": ("village", "taluk", "district", "registration_district",
+                 "registration_sub_district", "hobli"),
+    "extent": ("total_area", "built_up_area", "super_built_up_area", "carpet_area",
+               "undivided_share", "uds_parent_extent", "extent_sqft"),
+    "outstanding": ("amount_num",),
+}
+
+
+def lot_provenance(entities: list[dict]) -> dict[str, dict]:
+    """{lot_index: {field: {entity_id, page, block_id, source, evidence, method,
+    inherited_from, ...}}} — the receipt for every promoted value, carried
+    from the reader's evidence attrs (docs/extraction-pipeline-audit, R3).
+    full_description and borrower are keyed by class."""
+    out: dict[str, dict] = {}
+    for e in entities:
+        a = e.get("attrs") or {}
+        cls = e.get("cls")
+        li = str(a.get("lot_index") or "1")
+        prov = {k: a[k] for k in _PROV_KEYS if a.get(k) not in (None, "")}
+        if e.get("start") is not None:
+            prov["start"], prov["end"] = e["start"], e["end"]
+        if e.get("id"):
+            prov["entity_id"] = e["id"]
+        if not prov:
+            continue
+        fields = [f for f in _PROV_FIELDS.get(cls, ()) if a.get(f) not in (None, "")]
+        if cls in ("full_description", "borrower", "boundary", "identifier", "schedule"):
+            fields = [cls]
+        slot = out.setdefault(li, {})
+        for f in fields:
+            slot.setdefault(f, prov)
+    return out
+
+
 def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
     """Split grounded entities into (notice_level, [lot records]).
 
@@ -899,6 +940,8 @@ MATCH (d:Document {filename: $filename})
 MERGE (l:Lot {lot_key: $lot_key})
 SET l += $props,
     l.lot_index = $lot_index,
+    // the receipt for every value above: page, block, source, evidence state
+    l.provenance_json = $provenance_json,
     l.promoted_at = datetime(),
     l.verified_at = CASE WHEN $review_status = 'verified'
                          THEN datetime() ELSE l.verified_at END
@@ -1208,6 +1251,7 @@ def promote_document(doc: dict, dry_run: bool,
     entities = entities_with_corrections(doc["extraction_json"],
                                          doc.get("corrections_json"))
     notice, lots = build_lots(entities, filename)
+    provenance = lot_provenance(entities)
     if dry_run:
         places = [lot_place(rec) for rec in lots]
         print(f"  [dry-run] {filename}: {len(lots)} lot(s), "
@@ -1257,6 +1301,8 @@ def promote_document(doc: dict, dry_run: bool,
             "lot_key": rec["lot_key"],
             "lot_index": rec["lot_index"],
             "props": props,
+            "provenance_json": json.dumps(provenance.get(rec["lot_index"]) or {},
+                                          ensure_ascii=False),
             "review_status": doc.get("review_status"),
             "possession_type": possession_type,
             "possession_date": possession_date,

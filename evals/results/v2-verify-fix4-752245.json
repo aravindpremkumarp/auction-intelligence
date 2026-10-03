@@ -1,0 +1,2143 @@
+{
+ "reader": "v2",
+ "stability": "verify",
+ "notices": 1,
+ "repeats": 3,
+ "overall": {
+  "accuracy_mean": 100.0,
+  "lot_count_exact_every_repeat": true,
+  "wrong_lot_bindings": 0,
+  "ungrounded_entities": 0,
+  "spread_le_5pts": 1,
+  "key_fact_recall": 100.0,
+  "cost_usd": 0.0074,
+  "cost_per_correct_key_fact_usd": 0.00062,
+  "seconds_p95": 8.3,
+  "usage": {
+   "calls": 12,
+   "prompt_tokens": 1005,
+   "cached_tokens": 91008,
+   "output_tokens": 8247,
+   "cost": 0.007434
+  }
+ },
+ "per_field": {
+  "closed_world": {
+   "precision": 100.0,
+   "recall": 100.0,
+   "invented": 0,
+   "slotting": 0
+  },
+  "recall_by_field": {
+   "assignor_bank": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "bank_name": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "borrower_primary": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "id:block": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "id:floor": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "legal_basis": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "possession_type": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "reserve_price_num": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "taluk": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "trust_name": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   },
+   "village": {
+    "correct": 3,
+    "total": 3,
+    "pct": 100.0
+   }
+  }
+ },
+ "per_stratum": {
+  "single": {
+   "notices": 1,
+   "accuracy_mean": 100.0,
+   "wrong_lot": 0,
+   "ungrounded": 0,
+   "lot_count_fail": 0
+  },
+  "scan": {
+   "notices": 1,
+   "accuracy_mean": 100.0,
+   "wrong_lot": 0,
+   "ungrounded": 0,
+   "lot_count_fail": 0
+  },
+  "arc": {
+   "notices": 1,
+   "accuracy_mean": 100.0,
+   "wrong_lot": 0,
+   "ungrounded": 0,
+   "lot_count_fail": 0
+  },
+  "apartment_uds": {
+   "notices": 1,
+   "accuracy_mean": 100.0,
+   "wrong_lot": 0,
+   "ungrounded": 0,
+   "lot_count_fail": 0
+  }
+ },
+ "notices_detail": [
+  {
+   "aid": "752245",
+   "notice_type": "single",
+   "repeats": 3,
+   "accuracy": {
+    "mean": 100.0,
+    "min": 100.0,
+    "max": 100.0
+   },
+   "entities": {
+    "min": 27,
+    "max": 28
+   },
+   "validator": {
+    "min": 80,
+    "max": 100
+   },
+   "lot_count_ok_every_repeat": null,
+   "wrong_lot_bindings": 0,
+   "ungrounded": 0,
+   "fd_iou_mean": null,
+   "key_correct": 12,
+   "key_total": 12
+  }
+ ],
+ "runs": {
+  "752245": [
+   {
+    "records": [
+     {
+      "id": "e683c72a89bf",
+      "cls": "secured_creditor",
+      "text": "Asset Reconstruction Company (India) Limited",
+      "start": 466,
+      "end": 510,
+      "attrs": {
+       "legal_basis": "SARFAESI",
+       "bank_name": "Asset Reconstruction Company (India) Limited",
+       "assignor_bank": "Bajaj Housing Finance Limited",
+       "trust_name": "Arcil-Retail Loan Portfolio-042-E-Trust",
+       "sale_terms": "As is where is",
+       "auction_platform_url": "https://auction.arol.co.in",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "header",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "2b7490a03c63",
+      "cls": "contact",
+      "text": "Mahesh Bangera - 9004173256 (mahesh.bangera@arcil.co.in), Karthikeyan Jayavel - 9841415252 (karthikeyan.jayavel@arcil.co.in), Vijeyaraj - 9551714951 - Vijayaraj@arcil.co.in)",
+      "start": 4707,
+      "end": 4880,
+      "attrs": {
+       "phones": "9004173256, 9841415252, 9551714951",
+       "email": "mahesh.bangera@arcil.co.in",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "ff07ebc3fe91",
+      "cls": "emd_account",
+      "text": "Account Name : Arcil-Retail Loan Portfolio-042-IF-Trust, A/C No : 57500000729860, Maintained with : HDFC Bank, IFSC Code : HDFC0000542, Branch Address : Kamala Mills Compound, Senapati Bapat Marg, Lower Parel-400013",
+      "start": 4418,
+      "end": 4633,
+      "attrs": {
+       "account_name": "Arcil-Retail Loan Portfolio-042-IF-Trust",
+       "account_no": "57500000729860",
+       "ifsc": "HDFC0000542",
+       "bank": "HDFC Bank",
+       "mode_of_payment": "RTGS",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "46fbca67ee1d",
+      "cls": "full_terms",
+      "text": "Terms and Conditions :\n\n- 1. The Auction Sale is being conducted through e-auction through the website https://auction.arol.co.in and as per the Terms and Conditions of the Bid Document, and as per the procedure set out therein.\n- 2. The Authorised Officer (\"AO\")/ARC1, shall not be helic responsible for internet connectivity, network problems, system crash down, power failure etc.\n- 3. At any stage of the auction, the AO may accept rejection or modify/cancel the bid offer or post-pone the Auction without assigning any reason thereof and without any prior notice.\n- 4. The successful purchaser bidder shall bear any statutory dues, taxes, fees payable, applicable GST on the purchase consideration, stamp duty, registration fees, etc. that is required to be paid in order to get the secured asset conveyed delivered in his/herits favour as per the applicable law.\n- 5. The intending bidders should make their own independent enquiries/ due diligence regarding encumbrances, title of secured asset and claims/rights/dues affecting the secured assets, including statutory dues, etc., prior to subm",
+      "start": 4900,
+      "end": 6000,
+      "attrs": {
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "317dc6c1fc05",
+      "cls": "borrower",
+      "text": "Mr. S Dhayanandh",
+      "start": 1551,
+      "end": 1567,
+      "attrs": {
+       "role": "borrower",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "2dfaba3a2062",
+      "cls": "identifier",
+      "text": "in S. F. No. 265/1B",
+      "start": 2422,
+      "end": 2441,
+      "attrs": {
+       "kind": "survey_old",
+       "value": "265/1B",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "aea48f69b780",
+      "cls": "identifier",
+      "text": "the Site Nos. 7, 8 and 9 adjoining together",
+      "start": 2833,
+      "end": 2876,
+      "attrs": {
+       "kind": "plot",
+       "value": "7, 8 and 9",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b55b1d26d6f5",
+      "cls": "identifier",
+      "text": "A Flat in the First Floor 'A' BLOCK",
+      "start": 3535,
+      "end": 3570,
+      "attrs": {
+       "kind": "flat",
+       "value": "A",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b55b1d26d6f5-2",
+      "cls": "identifier",
+      "text": "A Flat in the First Floor 'A' BLOCK",
+      "start": 3535,
+      "end": 3570,
+      "attrs": {
+       "kind": "floor",
+       "value": "First Floor",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "70527e0a1c23",
+      "cls": "identifier",
+      "text": "in the First Floor 'A' BLOCK",
+      "start": 3542,
+      "end": 3570,
+      "attrs": {
+       "kind": "block",
+       "value": "A",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b314cf100a23",
+      "cls": "extent",
+      "text": "an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land",
+      "start": 3398,
+      "end": 3487,
+      "attrs": {
+       "undivided_share": "an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land",
+       "lot_index": "1",
+       "evidence": "CONTESTED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "rule": "extent:vote_disagreed"
+      }
+     },
+     {
+      "id": "a27284fca7f5",
+      "cls": "extent",
+      "text": "Super built up area of 1030 Sq. ft.",
+      "start": 3641,
+      "end": 3676,
+      "attrs": {
+       "super_built_up_area": "Super built up area of 1030 Sq. ft.",
+       "extent_sqft": "1030.0",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "401d2237c629",
+      "cls": "extent",
+      "text": "Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+      "start": 3224,
+      "end": 3286,
+      "attrs": {
+       "uds_parent_extent": "Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "da75f82e3337",
+      "cls": "boundary",
+      "text": "Common pathway",
+      "start": 2509,
+      "end": 2523,
+      "attrs": {
+       "side": "north",
+       "adjacency": "Common pathway",
+       "measurement": "60 feet 4 inches",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "d03444395c3e",
+      "cls": "boundary",
+      "text": "East West Itteri.",
+      "start": 2534,
+      "end": 2551,
+      "attrs": {
+       "side": "south",
+       "adjacency": "East West Itteri.",
+       "measurement": "61 feet 1 inch",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "a5213578ffbd",
+      "cls": "boundary",
+      "text": "The property belongs to Jaganathan",
+      "start": 2561,
+      "end": 2595,
+      "attrs": {
+       "side": "east",
+       "adjacency": "The property belongs to Jaganathan",
+       "measurement": "120 feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "f08ed8a9ff4a",
+      "cls": "boundary",
+      "text": "The property belongs to Kutliammal",
+      "start": 2605,
+      "end": 2639,
+      "attrs": {
+       "side": "west",
+       "adjacency": "The property belongs to Kutliammal",
+       "measurement": "118 feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "320c6f6cd5e7",
+      "cls": "location",
+      "text": "situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE",
+      "start": 2285,
+      "end": 2420,
+      "attrs": {
+       "village": "KALAPATTY",
+       "taluk": "Coimbatore North",
+       "registration_district": "Colmbatore",
+       "registration_sub_district": "Gandhpuram",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "village,taluk"
+      }
+     },
+     {
+      "id": "0de080ebe222",
+      "cls": "schedule",
+      "text": "Property owned by S Dhayanandh; All that piece and parcel of land situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE, in S. F. No. 265/1B, Ac. 8.40 In This Western Porton Ac. 2.60 bounded on the, North by Common pathway, South by East West Itteri., East by The property belongs to Jaganathan, West by The property belongs to Kutliammal, these lands was formed into a layout of house sites and Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994, in this the Site Nos. 7, 8 and 9 adjoining together bounded on the, North by - The Site No. 6, South by - The Site No. 10, East by - The remaining lands in S.F. No. 265/1B and West by - 30 feet wide North South layout road, Within this, East to West on the North-60 feet 4 inches, East to West on the South-61 feet 1 inch, North to South on the East- 120 feet, North to South on the West- 118 feet. Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet with its all appurtenances attached thereto etc., Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc., Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO. The property includes improvement already made and to be made from time to time",
+      "start": 2219,
+      "end": 3946,
+      "attrs": {
+       "label": "A",
+       "type": "land",
+       "extent": "Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "4691c12c4bec",
+      "cls": "schedule",
+      "text": "Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc.,",
+      "start": 3337,
+      "end": 3520,
+      "attrs": {
+       "label": "B",
+       "type": "uds",
+       "extent": "an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "f298b7c1938e",
+      "cls": "schedule",
+      "text": "Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO.",
+      "start": 3521,
+      "end": 3866,
+      "attrs": {
+       "label": "C",
+       "type": "flat",
+       "extent": "Super built up area of 1030 Sq. ft.",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "07cff11919ac",
+      "cls": "full_description",
+      "text": "Property owned by S Dhayanandh; All that piece and parcel of land situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE, in S. F. No. 265/1B, Ac. 8.40 In This Western Porton Ac. 2.60 bounded on the, North by Common pathway, South by East West Itteri., East by The property belongs to Jaganathan, West by The property belongs to Kutliammal, these lands was formed into a layout of house sites and Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994, in this the Site Nos. 7, 8 and 9 adjoining together bounded on the, North by - The Site No. 6, South by - The Site No. 10, East by - The remaining lands in S.F. No. 265/1B and West by - 30 feet wide North South layout road, Within this, East to West on the North-60 feet 4 inches, East to West on the South-61 feet 1 inch, North to South on the East- 120 feet, North to South on the West- 118 feet. Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet with its all appurtenances attached thereto etc., Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc., Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO. The property includes improvement already made and to be made from time to time",
+      "start": 2219,
+      "end": 3946,
+      "attrs": {
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "892a883f4951",
+      "cls": "property",
+      "text": "A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\"",
+      "start": 3535,
+      "end": 3633,
+      "attrs": {
+       "property_type": "UDS 406 Soft SBUA 1030 Sqft",
+       "property_type_norm": "flat",
+       "asset_category": "immovable",
+       "occupancy_status": "under-construction",
+       "encumbrance": "Nil",
+       "portal_aid": "752245",
+       "lot_label": "1",
+       "possession_type": "physical",
+       "possession_date": "2023-08-17T17:08",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "verify_vote",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "possession_type,property_type"
+      }
+     },
+     {
+      "id": "362cd8dfc5d9",
+      "cls": "auction_terms",
+      "text": "Rs. 2889000/- (Rupees Twenty Eight Lakhs Eighty Nine Thousand Only)",
+      "start": 2052,
+      "end": 2119,
+      "attrs": {
+       "reserve_price_num": "2889000",
+       "emd_num": "288900",
+       "inspection_dt": "2026-05-04",
+       "auction_start_dt": "2026-05-25T16:30",
+       "application_deadline_dt": "2026-05-22T17:00",
+       "bid_increment_state": "not_stated",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "reserve_price_num,emd_num,auction_start_dt"
+      }
+     },
+     {
+      "id": "18140e0b2d24",
+      "cls": "outstanding",
+      "text": "Rs. 39,47,087.37- (Indian Rupees Thirty Nine Lakhs Forty Seven Thousand Eighty Seven Only) as on 15.07.2025",
+      "start": 1701,
+      "end": 1808,
+      "attrs": {
+       "as_on": "2025-07-15T15:07",
+       "loan_account_no": "421HS056993148",
+       "lot_index": "1",
+       "evidence": "ILLEGIBLE",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "7255b698849e",
+      "cls": "extras",
+      "text": "Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994",
+      "start": 2697,
+      "end": 2823,
+      "attrs": {
+       "key": "layout_approval",
+       "value": "Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b678ccc4befc",
+      "cls": "extras",
+      "text": "Pending Litigations known to ARCIL",
+      "start": 3963,
+      "end": 3997,
+      "attrs": {
+       "key": "pending_litigation",
+       "value": "Pending Litigations known to ARCIL",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "9b63ce0137f8",
+      "cls": "extras",
+      "text": "along with a covered car parking area in the slit floor",
+      "start": 3703,
+      "end": 3758,
+      "attrs": {
+       "key": "car_parking",
+       "value": "along with a covered car parking area in the slit floor",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     }
+    ],
+    "meta": {
+     "reader": "v2",
+     "model": "deepseek/deepseek-v4.1-flash",
+     "segmentation": {
+      "strategy": "whole",
+      "lots": 1,
+      "note": "single",
+      "expected": 1,
+      "tables": 2
+     },
+     "dropped": [],
+     "telemetry": {
+      "lots": 1,
+      "entities": 28,
+      "dropped": 0,
+      "by_class": {
+       "auction_terms": {
+        "VERIFIED": 1
+       },
+       "borrower": {
+        "EXPLICIT": 1
+       },
+       "boundary": {
+        "EXPLICIT": 4
+       },
+       "contact": {
+        "EXPLICIT": 1
+       },
+       "emd_account": {
+        "EXPLICIT": 1
+       },
+       "extent": {
+        "CONTESTED": 1,
+        "EXPLICIT": 2
+       },
+       "extras": {
+        "EXPLICIT": 3
+       },
+       "full_description": {
+        "EXPLICIT": 1
+       },
+       "full_terms": {
+        "EXPLICIT": 1
+       },
+       "identifier": {
+        "EXPLICIT": 5
+       },
+       "location": {
+        "VERIFIED": 1
+       },
+       "outstanding": {
+        "ILLEGIBLE": 1
+       },
+       "property": {
+        "VERIFIED": 1
+       },
+       "schedule": {
+        "EXPLICIT": 3
+       },
+       "secured_creditor": {
+        "EXPLICIT": 1
+       }
+      },
+      "anchors": {
+       "exact": 28
+      },
+      "key_facts": {
+       "filled": 7,
+       "verified": 5,
+       "total": 7,
+       "states": {
+        "reserve_price": {
+         "VERIFIED": 1
+        },
+        "auction_date": {
+         "VERIFIED": 1
+        },
+        "property_type": {
+         "VERIFIED": 1
+        },
+        "location": {
+         "VERIFIED": 1
+        },
+        "extent": {
+         "CONTESTED": 1
+        },
+        "full_description": {
+         "EXPLICIT": 1
+        },
+        "possession_type": {
+         "VERIFIED": 1
+        }
+       }
+      },
+      "calls": 4,
+      "usage": {
+       "prompt_tokens": 30671,
+       "completion_tokens": 2829,
+       "cached_tokens": 30336
+      },
+      "cost_usd": 0.002526,
+      "cost_per_filled_key_fact": 0.00036,
+      "cost_per_verified_key_fact": 0.00051,
+      "seconds": 10.5,
+      "segmentation": {
+       "strategy": "whole",
+       "lots": 1,
+       "note": "single",
+       "expected": 1,
+       "tables": 2
+      }
+     },
+     "seconds": 11.2,
+     "usage": {
+      "calls": 4,
+      "prompt_tokens": 335,
+      "cached_tokens": 30336,
+      "output_tokens": 2829,
+      "cost": 0.002526
+     }
+    }
+   },
+   {
+    "records": [
+     {
+      "id": "e683c72a89bf",
+      "cls": "secured_creditor",
+      "text": "Asset Reconstruction Company (India) Limited",
+      "start": 466,
+      "end": 510,
+      "attrs": {
+       "legal_basis": "SARFAESI",
+       "bank_name": "Asset Reconstruction Company (India) Limited",
+       "assignor_bank": "Bajaj Housing Finance Limited",
+       "trust_name": "Arcil-Retail Loan Portfolio-042-E-Trust",
+       "sale_terms": "\"As is where is\", \"As is what is\", \"Whatever there is\" and \"Without recourse basis\"",
+       "auction_platform_url": "https://auction.arol.co.in",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "header",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "2b7490a03c63",
+      "cls": "contact",
+      "text": "Mahesh Bangera - 9004173256 (mahesh.bangera@arcil.co.in), Karthikeyan Jayavel - 9841415252 (karthikeyan.jayavel@arcil.co.in), Vijeyaraj - 9551714951 - Vijayaraj@arcil.co.in)",
+      "start": 4707,
+      "end": 4880,
+      "attrs": {
+       "phones": "9004173256, 9841415252, 9551714951",
+       "email": "mahesh.bangera@arcil.co.in",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "ff07ebc3fe91",
+      "cls": "emd_account",
+      "text": "Account Name : Arcil-Retail Loan Portfolio-042-IF-Trust, A/C No : 57500000729860, Maintained with : HDFC Bank, IFSC Code : HDFC0000542, Branch Address : Kamala Mills Compound, Senapati Bapat Marg, Lower Parel-400013",
+      "start": 4418,
+      "end": 4633,
+      "attrs": {
+       "account_name": "Arcil-Retail Loan Portfolio-042-IF-Trust",
+       "account_no": "57500000729860",
+       "ifsc": "HDFC0000542",
+       "bank": "HDFC Bank",
+       "mode_of_payment": "RTGS",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "46fbca67ee1d",
+      "cls": "full_terms",
+      "text": "Terms and Conditions :\n\n- 1. The Auction Sale is being conducted through e-auction through the website https://auction.arol.co.in and as per the Terms and Conditions of the Bid Document, and as per the procedure set out therein.\n- 2. The Authorised Officer (\"AO\")/ARC1, shall not be helic responsible for internet connectivity, network problems, system crash down, power failure etc.\n- 3. At any stage of the auction, the AO may accept rejection or modify/cancel the bid offer or post-pone the Auction without assigning any reason thereof and without any prior notice.\n- 4. The successful purchaser bidder shall bear any statutory dues, taxes, fees payable, applicable GST on the purchase consideration, stamp duty, registration fees, etc. that is required to be paid in order to get the secured asset conveyed delivered in his/herits favour as per the applicable law.\n- 5. The intending bidders should make their own independent enquiries/ due diligence regarding encumbrances, title of secured asset and claims/rights/dues affecting the secured assets, including statutory dues, etc., prior to subm",
+      "start": 4900,
+      "end": 6000,
+      "attrs": {
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "317dc6c1fc05",
+      "cls": "borrower",
+      "text": "Mr. S Dhayanandh",
+      "start": 1551,
+      "end": 1567,
+      "attrs": {
+       "role": "borrower",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "8b3f05ddcea3",
+      "cls": "identifier",
+      "text": "S. F. No. 265/1B",
+      "start": 2425,
+      "end": 2441,
+      "attrs": {
+       "kind": "survey_old",
+       "value": "265/1B",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "6e19019a7348",
+      "cls": "identifier",
+      "text": "Site Nos. 7, 8 and 9",
+      "start": 2837,
+      "end": 2857,
+      "attrs": {
+       "kind": "plot",
+       "value": "7, 8 and 9",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b55b1d26d6f5",
+      "cls": "identifier",
+      "text": "A Flat in the First Floor 'A' BLOCK",
+      "start": 3535,
+      "end": 3570,
+      "attrs": {
+       "kind": "flat",
+       "value": "A",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b55b1d26d6f5-2",
+      "cls": "identifier",
+      "text": "A Flat in the First Floor 'A' BLOCK",
+      "start": 3535,
+      "end": 3570,
+      "attrs": {
+       "kind": "floor",
+       "value": "First Floor",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "663b52b9b8b7",
+      "cls": "identifier",
+      "text": "'A' BLOCK",
+      "start": 3561,
+      "end": 3570,
+      "attrs": {
+       "kind": "block",
+       "value": "A",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "4828973aed42",
+      "cls": "extent",
+      "text": "406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share",
+      "start": 3411,
+      "end": 3462,
+      "attrs": {
+       "undivided_share": "406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share",
+       "lot_index": "1",
+       "evidence": "CONTESTED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "rule": "extent:vote_disagreed"
+      }
+     },
+     {
+      "id": "a27284fca7f5",
+      "cls": "extent",
+      "text": "Super built up area of 1030 Sq. ft.",
+      "start": 3641,
+      "end": 3676,
+      "attrs": {
+       "super_built_up_area": "Super built up area of 1030 Sq. ft.",
+       "extent_sqft": "1030.0",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "401d2237c629",
+      "cls": "extent",
+      "text": "Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+      "start": 3224,
+      "end": 3286,
+      "attrs": {
+       "uds_parent_extent": "Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "da75f82e3337",
+      "cls": "boundary",
+      "text": "Common pathway",
+      "start": 2509,
+      "end": 2523,
+      "attrs": {
+       "side": "north",
+       "adjacency": "Common pathway",
+       "measurement": "60 feet 4 inches",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "d03444395c3e",
+      "cls": "boundary",
+      "text": "East West Itteri.",
+      "start": 2534,
+      "end": 2551,
+      "attrs": {
+       "side": "south",
+       "adjacency": "East West Itteri.",
+       "measurement": "61 feet 1 inch",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "a5213578ffbd",
+      "cls": "boundary",
+      "text": "The property belongs to Jaganathan",
+      "start": 2561,
+      "end": 2595,
+      "attrs": {
+       "side": "east",
+       "adjacency": "The property belongs to Jaganathan",
+       "measurement": "120 feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "f08ed8a9ff4a",
+      "cls": "boundary",
+      "text": "The property belongs to Kutliammal",
+      "start": 2605,
+      "end": 2639,
+      "attrs": {
+       "side": "west",
+       "adjacency": "The property belongs to Kutliammal",
+       "measurement": "118 feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "320c6f6cd5e7",
+      "cls": "location",
+      "text": "situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE",
+      "start": 2285,
+      "end": 2420,
+      "attrs": {
+       "village": "KALAPATTY",
+       "taluk": "Coimbatore North",
+       "registration_district": "Colmbatore",
+       "registration_sub_district": "Gandhpuram",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "village,taluk"
+      }
+     },
+     {
+      "id": "0de080ebe222",
+      "cls": "schedule",
+      "text": "Property owned by S Dhayanandh; All that piece and parcel of land situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE, in S. F. No. 265/1B, Ac. 8.40 In This Western Porton Ac. 2.60 bounded on the, North by Common pathway, South by East West Itteri., East by The property belongs to Jaganathan, West by The property belongs to Kutliammal, these lands was formed into a layout of house sites and Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994, in this the Site Nos. 7, 8 and 9 adjoining together bounded on the, North by - The Site No. 6, South by - The Site No. 10, East by - The remaining lands in S.F. No. 265/1B and West by - 30 feet wide North South layout road, Within this, East to West on the North-60 feet 4 inches, East to West on the South-61 feet 1 inch, North to South on the East- 120 feet, North to South on the West- 118 feet. Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet with its all appurtenances attached thereto etc., Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc., Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO. The property includes improvement already made and to be made from time to time",
+      "start": 2219,
+      "end": 3946,
+      "attrs": {
+       "label": "A",
+       "type": "land",
+       "extent": "Ac. 8.40 In This Western Porton Ac. 2.60",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "4691c12c4bec",
+      "cls": "schedule",
+      "text": "Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc.,",
+      "start": 3337,
+      "end": 3520,
+      "attrs": {
+       "label": "B",
+       "type": "uds",
+       "extent": "406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "f298b7c1938e",
+      "cls": "schedule",
+      "text": "Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO.",
+      "start": 3521,
+      "end": 3866,
+      "attrs": {
+       "label": "C",
+       "type": "flat",
+       "extent": "Super built up area of 1030 Sq. ft.",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "07cff11919ac",
+      "cls": "full_description",
+      "text": "Property owned by S Dhayanandh; All that piece and parcel of land situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE, in S. F. No. 265/1B, Ac. 8.40 In This Western Porton Ac. 2.60 bounded on the, North by Common pathway, South by East West Itteri., East by The property belongs to Jaganathan, West by The property belongs to Kutliammal, these lands was formed into a layout of house sites and Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994, in this the Site Nos. 7, 8 and 9 adjoining together bounded on the, North by - The Site No. 6, South by - The Site No. 10, East by - The remaining lands in S.F. No. 265/1B and West by - 30 feet wide North South layout road, Within this, East to West on the North-60 feet 4 inches, East to West on the South-61 feet 1 inch, North to South on the East- 120 feet, North to South on the West- 118 feet. Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet with its all appurtenances attached thereto etc., Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc., Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO. The property includes improvement already made and to be made from time to time",
+      "start": 2219,
+      "end": 3946,
+      "attrs": {
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "0c317b5e4f93",
+      "cls": "property",
+      "text": "UDS 406 Soft SBUA 1030 Sqft",
+      "start": 1936,
+      "end": 1963,
+      "attrs": {
+       "property_type": "UDS 406 Soft SBUA 1030 Sqft",
+       "property_type_norm": "flat",
+       "asset_category": "immovable",
+       "occupancy_status": "under-construction",
+       "encumbrance": "Nil",
+       "portal_aid": "752245",
+       "lot_label": "1",
+       "possession_type": "physical",
+       "possession_date": "2023-08-17T17:08",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "property_type,possession_type"
+      }
+     },
+     {
+      "id": "362cd8dfc5d9",
+      "cls": "auction_terms",
+      "text": "Rs. 2889000/- (Rupees Twenty Eight Lakhs Eighty Nine Thousand Only)",
+      "start": 2052,
+      "end": 2119,
+      "attrs": {
+       "reserve_price_num": "2889000",
+       "emd_num": "288900",
+       "inspection_dt": "2026-05-04",
+       "auction_start_dt": "2026-05-25T16:30",
+       "application_deadline_dt": "2026-05-22T17:00",
+       "bid_increment_state": "not_stated",
+       "inherited": "application_deadline_dt",
+       "inherited_from": "notice.shared",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "reserve_price_num,emd_num,auction_start_dt"
+      }
+     },
+     {
+      "id": "18140e0b2d24",
+      "cls": "outstanding",
+      "text": "Rs. 39,47,087.37- (Indian Rupees Thirty Nine Lakhs Forty Seven Thousand Eighty Seven Only) as on 15.07.2025",
+      "start": 1701,
+      "end": 1808,
+      "attrs": {
+       "loan_account_no": "421HS056993148",
+       "lot_index": "1",
+       "evidence": "ILLEGIBLE",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b678ccc4befc",
+      "cls": "extras",
+      "text": "Pending Litigations known to ARCIL",
+      "start": 3963,
+      "end": 3997,
+      "attrs": {
+       "key": "pending_litigation",
+       "value": "Pending Litigations known to ARCIL",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "7255b698849e",
+      "cls": "extras",
+      "text": "Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994",
+      "start": 2697,
+      "end": 2823,
+      "attrs": {
+       "key": "layout_approval",
+       "value": "Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     }
+    ],
+    "meta": {
+     "reader": "v2",
+     "model": "deepseek/deepseek-v4.1-flash",
+     "segmentation": {
+      "strategy": "whole",
+      "lots": 1,
+      "note": "single",
+      "expected": 1,
+      "tables": 2
+     },
+     "dropped": [],
+     "telemetry": {
+      "lots": 1,
+      "entities": 27,
+      "dropped": 0,
+      "by_class": {
+       "auction_terms": {
+        "VERIFIED": 1
+       },
+       "borrower": {
+        "EXPLICIT": 1
+       },
+       "boundary": {
+        "EXPLICIT": 4
+       },
+       "contact": {
+        "EXPLICIT": 1
+       },
+       "emd_account": {
+        "EXPLICIT": 1
+       },
+       "extent": {
+        "CONTESTED": 1,
+        "EXPLICIT": 2
+       },
+       "extras": {
+        "EXPLICIT": 2
+       },
+       "full_description": {
+        "EXPLICIT": 1
+       },
+       "full_terms": {
+        "EXPLICIT": 1
+       },
+       "identifier": {
+        "EXPLICIT": 5
+       },
+       "location": {
+        "VERIFIED": 1
+       },
+       "outstanding": {
+        "ILLEGIBLE": 1
+       },
+       "property": {
+        "VERIFIED": 1
+       },
+       "schedule": {
+        "EXPLICIT": 3
+       },
+       "secured_creditor": {
+        "EXPLICIT": 1
+       }
+      },
+      "anchors": {
+       "exact": 27
+      },
+      "key_facts": {
+       "filled": 7,
+       "verified": 5,
+       "total": 7,
+       "states": {
+        "reserve_price": {
+         "VERIFIED": 1
+        },
+        "auction_date": {
+         "VERIFIED": 1
+        },
+        "property_type": {
+         "VERIFIED": 1
+        },
+        "location": {
+         "VERIFIED": 1
+        },
+        "extent": {
+         "CONTESTED": 1
+        },
+        "full_description": {
+         "EXPLICIT": 1
+        },
+        "possession_type": {
+         "VERIFIED": 1
+        }
+       }
+      },
+      "calls": 4,
+      "usage": {
+       "prompt_tokens": 30671,
+       "completion_tokens": 2679,
+       "cached_tokens": 30336
+      },
+      "cost_usd": 0.002436,
+      "cost_per_filled_key_fact": 0.00035,
+      "cost_per_verified_key_fact": 0.00049,
+      "seconds": 7.6,
+      "segmentation": {
+       "strategy": "whole",
+       "lots": 1,
+       "note": "single",
+       "expected": 1,
+       "tables": 2
+      }
+     },
+     "seconds": 7.6,
+     "usage": {
+      "calls": 4,
+      "prompt_tokens": 335,
+      "cached_tokens": 30336,
+      "output_tokens": 2679,
+      "cost": 0.002436
+     }
+    }
+   },
+   {
+    "records": [
+     {
+      "id": "e683c72a89bf",
+      "cls": "secured_creditor",
+      "text": "Asset Reconstruction Company (India) Limited",
+      "start": 466,
+      "end": 510,
+      "attrs": {
+       "legal_basis": "SARFAESI",
+       "bank_name": "Asset Reconstruction Company (India) Limited",
+       "assignor_bank": "Bajaj Housing Finance Limited",
+       "trust_name": "Arcil-Retail Loan Portfolio-042-E-Trust",
+       "sale_terms": "As is where is",
+       "auction_platform_url": "https://auction.arol.co.in",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "header",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "2b7490a03c63",
+      "cls": "contact",
+      "text": "Mahesh Bangera - 9004173256 (mahesh.bangera@arcil.co.in), Karthikeyan Jayavel - 9841415252 (karthikeyan.jayavel@arcil.co.in), Vijeyaraj - 9551714951 - Vijayaraj@arcil.co.in)",
+      "start": 4707,
+      "end": 4880,
+      "attrs": {
+       "phones": "9004173256, 9841415252, 9551714951",
+       "email": "mahesh.bangera@arcil.co.in",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "ff07ebc3fe91",
+      "cls": "emd_account",
+      "text": "Account Name : Arcil-Retail Loan Portfolio-042-IF-Trust, A/C No : 57500000729860, Maintained with : HDFC Bank, IFSC Code : HDFC0000542, Branch Address : Kamala Mills Compound, Senapati Bapat Marg, Lower Parel-400013",
+      "start": 4418,
+      "end": 4633,
+      "attrs": {
+       "account_name": "Arcil-Retail Loan Portfolio-042-IF-Trust",
+       "account_no": "57500000729860",
+       "ifsc": "HDFC0000542",
+       "bank": "HDFC Bank",
+       "mode_of_payment": "RTGS",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "46fbca67ee1d",
+      "cls": "full_terms",
+      "text": "Terms and Conditions :\n\n- 1. The Auction Sale is being conducted through e-auction through the website https://auction.arol.co.in and as per the Terms and Conditions of the Bid Document, and as per the procedure set out therein.\n- 2. The Authorised Officer (\"AO\")/ARC1, shall not be helic responsible for internet connectivity, network problems, system crash down, power failure etc.\n- 3. At any stage of the auction, the AO may accept rejection or modify/cancel the bid offer or post-pone the Auction without assigning any reason thereof and without any prior notice.\n- 4. The successful purchaser bidder shall bear any statutory dues, taxes, fees payable, applicable GST on the purchase consideration, stamp duty, registration fees, etc. that is required to be paid in order to get the secured asset conveyed delivered in his/herits favour as per the applicable law.\n- 5. The intending bidders should make their own independent enquiries/ due diligence regarding encumbrances, title of secured asset and claims/rights/dues affecting the secured assets, including statutory dues, etc., prior to subm",
+      "start": 4900,
+      "end": 6000,
+      "attrs": {
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "tail",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "317dc6c1fc05",
+      "cls": "borrower",
+      "text": "Mr. S Dhayanandh",
+      "start": 1551,
+      "end": 1567,
+      "attrs": {
+       "role": "borrower",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "8b3f05ddcea3",
+      "cls": "identifier",
+      "text": "S. F. No. 265/1B",
+      "start": 2425,
+      "end": 2441,
+      "attrs": {
+       "kind": "survey_old",
+       "value": "265/1B",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "6e19019a7348",
+      "cls": "identifier",
+      "text": "Site Nos. 7, 8 and 9",
+      "start": 2837,
+      "end": 2857,
+      "attrs": {
+       "kind": "plot",
+       "value": "7, 8 and 9",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b55b1d26d6f5",
+      "cls": "identifier",
+      "text": "A Flat in the First Floor 'A' BLOCK",
+      "start": 3535,
+      "end": 3570,
+      "attrs": {
+       "kind": "flat",
+       "value": "A",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b55b1d26d6f5-2",
+      "cls": "identifier",
+      "text": "A Flat in the First Floor 'A' BLOCK",
+      "start": 3535,
+      "end": 3570,
+      "attrs": {
+       "kind": "floor",
+       "value": "First Floor",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "663b52b9b8b7",
+      "cls": "identifier",
+      "text": "'A' BLOCK",
+      "start": 3561,
+      "end": 3570,
+      "attrs": {
+       "kind": "block",
+       "value": "A",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b314cf100a23",
+      "cls": "extent",
+      "text": "an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land",
+      "start": 3398,
+      "end": 3487,
+      "attrs": {
+       "undivided_share": "an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land",
+       "lot_index": "1",
+       "evidence": "CONTESTED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "rule": "extent:vote_disagreed"
+      }
+     },
+     {
+      "id": "a27284fca7f5",
+      "cls": "extent",
+      "text": "Super built up area of 1030 Sq. ft.",
+      "start": 3641,
+      "end": 3676,
+      "attrs": {
+       "super_built_up_area": "Super built up area of 1030 Sq. ft.",
+       "extent_sqft": "1030.0",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "401d2237c629",
+      "cls": "extent",
+      "text": "Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+      "start": 3224,
+      "end": 3286,
+      "attrs": {
+       "uds_parent_extent": "Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "da75f82e3337",
+      "cls": "boundary",
+      "text": "Common pathway",
+      "start": 2509,
+      "end": 2523,
+      "attrs": {
+       "side": "north",
+       "adjacency": "Common pathway",
+       "measurement": "60 feet 4 inches",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "d03444395c3e",
+      "cls": "boundary",
+      "text": "East West Itteri.",
+      "start": 2534,
+      "end": 2551,
+      "attrs": {
+       "side": "south",
+       "adjacency": "East West Itteri.",
+       "measurement": "61 feet 1 inch",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "a5213578ffbd",
+      "cls": "boundary",
+      "text": "The property belongs to Jaganathan",
+      "start": 2561,
+      "end": 2595,
+      "attrs": {
+       "side": "east",
+       "adjacency": "The property belongs to Jaganathan",
+       "measurement": "120 feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "f08ed8a9ff4a",
+      "cls": "boundary",
+      "text": "The property belongs to Kutliammal",
+      "start": 2605,
+      "end": 2639,
+      "attrs": {
+       "side": "west",
+       "adjacency": "The property belongs to Kutliammal",
+       "measurement": "118 feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "6703b017226f",
+      "cls": "location",
+      "text": "land situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE",
+      "start": 2280,
+      "end": 2420,
+      "attrs": {
+       "village": "KALAPATTY",
+       "taluk": "Coimbatore North",
+       "registration_district": "Colmbatore",
+       "registration_sub_district": "Gandhpuram",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "village,taluk"
+      }
+     },
+     {
+      "id": "0de080ebe222",
+      "cls": "schedule",
+      "text": "Property owned by S Dhayanandh; All that piece and parcel of land situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE, in S. F. No. 265/1B, Ac. 8.40 In This Western Porton Ac. 2.60 bounded on the, North by Common pathway, South by East West Itteri., East by The property belongs to Jaganathan, West by The property belongs to Kutliammal, these lands was formed into a layout of house sites and Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994, in this the Site Nos. 7, 8 and 9 adjoining together bounded on the, North by - The Site No. 6, South by - The Site No. 10, East by - The remaining lands in S.F. No. 265/1B and West by - 30 feet wide North South layout road, Within this, East to West on the North-60 feet 4 inches, East to West on the South-61 feet 1 inch, North to South on the East- 120 feet, North to South on the West- 118 feet. Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet with its all appurtenances attached thereto etc., Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc., Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO. The property includes improvement already made and to be made from time to time",
+      "start": 2219,
+      "end": 3946,
+      "attrs": {
+       "label": "A",
+       "type": "land",
+       "extent": "7302 Square Feet (Or) 16 Cents and 332 Square Feet",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "4691c12c4bec",
+      "cls": "schedule",
+      "text": "Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc.,",
+      "start": 3337,
+      "end": 3520,
+      "attrs": {
+       "label": "B",
+       "type": "uds",
+       "extent": "406 Sq. ft. (Or) 37.71 Sq. Mtrs.",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "f298b7c1938e",
+      "cls": "schedule",
+      "text": "Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO.",
+      "start": 3521,
+      "end": 3866,
+      "attrs": {
+       "label": "C",
+       "type": "flat",
+       "extent": "Super built up area of 1030 Sq. ft.",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "07cff11919ac",
+      "cls": "full_description",
+      "text": "Property owned by S Dhayanandh; All that piece and parcel of land situated in the Registration District of Colmbatore, Sub Registration District of Gandhpuram, Coimbatore North Taluk, KALAPATTY VILLAGE, in S. F. No. 265/1B, Ac. 8.40 In This Western Porton Ac. 2.60 bounded on the, North by Common pathway, South by East West Itteri., East by The property belongs to Jaganathan, West by The property belongs to Kutliammal, these lands was formed into a layout of house sites and Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994, in this the Site Nos. 7, 8 and 9 adjoining together bounded on the, North by - The Site No. 6, South by - The Site No. 10, East by - The remaining lands in S.F. No. 265/1B and West by - 30 feet wide North South layout road, Within this, East to West on the North-60 feet 4 inches, East to West on the South-61 feet 1 inch, North to South on the East- 120 feet, North to South on the West- 118 feet. Admeasuring 7302 Square Feet (Or) 16 Cents and 332 Square Feet with its all appurtenances attached thereto etc., Schedule 'B': In the property set out in Schedule 'A' above, an extent of 406 Sq. ft. (Or) 37.71 Sq. Mtrs. of undivided share and interest in the land with all rights in common, etc., Schedule 'C': A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\" having Super built up area of 1030 Sq. ft. (28HK) under construction along with a covered car parking area in the slit floor with the rights of common way and all other rights appended to it with all OTHER AMENTIES ATTACHED THERETO. The property includes improvement already made and to be made from time to time",
+      "start": 2219,
+      "end": 3946,
+      "attrs": {
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "892a883f4951",
+      "cls": "property",
+      "text": "A Flat in the First Floor 'A' BLOCK, in the Apartment called as \"AVINASH ENCLAVE LUXURY APARTMENT\"",
+      "start": 3535,
+      "end": 3633,
+      "attrs": {
+       "property_type": "UDS 406 Soft SBUA 1030 Sqft",
+       "property_type_norm": "flat",
+       "asset_category": "immovable",
+       "occupancy_status": "under-construction",
+       "encumbrance": "Nil",
+       "portal_aid": "752245",
+       "lot_label": "1",
+       "possession_type": "physical",
+       "possession_date": "2023-08-17T17:08",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "verify_vote",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "possession_type,property_type"
+      }
+     },
+     {
+      "id": "362cd8dfc5d9",
+      "cls": "auction_terms",
+      "text": "Rs. 2889000/- (Rupees Twenty Eight Lakhs Eighty Nine Thousand Only)",
+      "start": 2052,
+      "end": 2119,
+      "attrs": {
+       "reserve_price_num": "2889000",
+       "emd_num": "288900",
+       "inspection_dt": "2026-05-04",
+       "auction_start_dt": "2026-05-25T16:30",
+       "application_deadline_dt": "2026-05-22T17:00",
+       "bid_increment_state": "not_stated",
+       "lot_index": "1",
+       "evidence": "VERIFIED",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e",
+       "verified": "reserve_price_num,emd_num,auction_start_dt"
+      }
+     },
+     {
+      "id": "18140e0b2d24",
+      "cls": "outstanding",
+      "text": "Rs. 39,47,087.37- (Indian Rupees Thirty Nine Lakhs Forty Seven Thousand Eighty Seven Only) as on 15.07.2025",
+      "start": 1701,
+      "end": 1808,
+      "attrs": {
+       "loan_account_no": "421HS056993148",
+       "lot_index": "1",
+       "evidence": "ILLEGIBLE",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "b678ccc4befc",
+      "cls": "extras",
+      "text": "Pending Litigations known to ARCIL",
+      "start": 3963,
+      "end": 3997,
+      "attrs": {
+       "key": "pending_litigation",
+       "value": "Pending Litigations known to ARCIL",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     },
+     {
+      "id": "7255b698849e",
+      "cls": "extras",
+      "text": "Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994",
+      "start": 2697,
+      "end": 2823,
+      "attrs": {
+       "key": "layout_approval",
+       "value": "Town Panchayat approval sanctioned by the Executive Officer, Kalapatty Town Panchayat vide Na, Ka. No. 295/94 dated 28.10.1994",
+       "lot_index": "1",
+       "evidence": "EXPLICIT",
+       "anchor": "exact",
+       "source": "prose",
+       "method": "structured_reader",
+       "reader": "v2",
+       "schema_version": 1,
+       "prompt_hash": "v2-s1-8c1a22db8e"
+      }
+     }
+    ],
+    "meta": {
+     "reader": "v2",
+     "model": "deepseek/deepseek-v4.1-flash",
+     "segmentation": {
+      "strategy": "whole",
+      "lots": 1,
+      "note": "single",
+      "expected": 1,
+      "tables": 2
+     },
+     "dropped": [],
+     "telemetry": {
+      "lots": 1,
+      "entities": 27,
+      "dropped": 0,
+      "by_class": {
+       "auction_terms": {
+        "VERIFIED": 1
+       },
+       "borrower": {
+        "EXPLICIT": 1
+       },
+       "boundary": {
+        "EXPLICIT": 4
+       },
+       "contact": {
+        "EXPLICIT": 1
+       },
+       "emd_account": {
+        "EXPLICIT": 1
+       },
+       "extent": {
+        "CONTESTED": 1,
+        "EXPLICIT": 2
+       },
+       "extras": {
+        "EXPLICIT": 2
+       },
+       "full_description": {
+        "EXPLICIT": 1
+       },
+       "full_terms": {
+        "EXPLICIT": 1
+       },
+       "identifier": {
+        "EXPLICIT": 5
+       },
+       "location": {
+        "VERIFIED": 1
+       },
+       "outstanding": {
+        "ILLEGIBLE": 1
+       },
+       "property": {
+        "VERIFIED": 1
+       },
+       "schedule": {
+        "EXPLICIT": 3
+       },
+       "secured_creditor": {
+        "EXPLICIT": 1
+       }
+      },
+      "anchors": {
+       "exact": 27
+      },
+      "key_facts": {
+       "filled": 7,
+       "verified": 5,
+       "total": 7,
+       "states": {
+        "reserve_price": {
+         "VERIFIED": 1
+        },
+        "auction_date": {
+         "VERIFIED": 1
+        },
+        "property_type": {
+         "VERIFIED": 1
+        },
+        "location": {
+         "VERIFIED": 1
+        },
+        "extent": {
+         "CONTESTED": 1
+        },
+        "full_description": {
+         "EXPLICIT": 1
+        },
+        "possession_type": {
+         "VERIFIED": 1
+        }
+       }
+      },
+      "calls": 4,
+      "usage": {
+       "prompt_tokens": 30671,
+       "completion_tokens": 2739,
+       "cached_tokens": 30336
+      },
+      "cost_usd": 0.002472,
+      "cost_per_filled_key_fact": 0.00035,
+      "cost_per_verified_key_fact": 0.00049,
+      "seconds": 8.3,
+      "segmentation": {
+       "strategy": "whole",
+       "lots": 1,
+       "note": "single",
+       "expected": 1,
+       "tables": 2
+      }
+     },
+     "seconds": 8.3,
+     "usage": {
+      "calls": 4,
+      "prompt_tokens": 335,
+      "cached_tokens": 30336,
+      "output_tokens": 2739,
+      "cost": 0.002472
+     }
+    }
+   }
+  ]
+ },
+ "at": "2026-10-01T07:15:30Z"
+}

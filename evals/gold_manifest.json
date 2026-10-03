@@ -1,0 +1,109 @@
+{
+  "_doc": "Strata and the failure mode each gold notice was chosen for. Strata drive the per-stratum report in evals/langextract_eval.py; gold grows from v1 (~40, hand-verified) to v2 (100) and v3 (500) via scripts/gold_candidates.py. Keep 'strata' to the vocabulary below.",
+  "strata_vocabulary": [
+    "single",
+    "multi",
+    "html_table",
+    "pdf",
+    "scan",
+    "tamil",
+    "bilingual",
+    "40plus_lots",
+    "apartment_uds",
+    "drt",
+    "arc",
+    "poor_scan",
+    "stitched",
+    "karnataka",
+    "possession_disjunctive",
+    "serial_reset",
+    "lakh_units"
+  ],
+  "versions": {
+    "v1": {
+      "target": 40,
+      "status": "in progress: 9 seed + reviewer sprint"
+    },
+    "v2": {
+      "target": 100
+    },
+    "v3": {
+      "target": 500
+    }
+  },
+  "notices": {
+    "737508": {
+      "strata": [
+        "single",
+        "scan",
+        "karnataka"
+      ],
+      "picked_for": "Karnataka khata + Hobli; constructive possession"
+    },
+    "750600": {
+      "strata": [
+        "single",
+        "scan",
+        "drt"
+      ],
+      "picked_for": "DRT 'Upset Price', court reference, no EMD"
+    },
+    "758158": {
+      "strata": [
+        "single",
+        "scan",
+        "apartment_uds"
+      ],
+      "picked_for": "flat + UDS, registration district/sub-district"
+    },
+    "747290": {
+      "strata": [
+        "single",
+        "scan",
+        "arc"
+      ],
+      "picked_for": "ARC assignor bank + trust name in prose"
+    },
+    "749433": {
+      "strata": [
+        "multi",
+        "scan"
+      ],
+      "picked_for": "multi label whose text holds one lot: must not invent lots"
+    },
+    "755527": {
+      "strata": [
+        "single",
+        "scan"
+      ],
+      "picked_for": "tiled house, symbolic possession, plot + survey ids"
+    },
+    "750348": {
+      "strata": [
+        "multi",
+        "scan",
+        "possession_disjunctive",
+        "apartment_uds"
+      ],
+      "picked_for": "6 lots under 5 OCR-mangled serials; disjunctive possession -> EXPECT_NULL"
+    },
+    "752245": {
+      "strata": [
+        "single",
+        "scan",
+        "arc",
+        "apartment_uds"
+      ],
+      "picked_for": "ARCIL via 'Selling Bank' column; schedule A/B/C; district unstated"
+    },
+    "753006": {
+      "strata": [
+        "multi",
+        "scan",
+        "serial_reset",
+        "lakh_units"
+      ],
+      "picked_for": "serials reset per branch; two lots share a reserve; money in lakhs"
+    }
+  }
+}

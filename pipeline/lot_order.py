@@ -69,6 +69,20 @@ def anchors(ents: list[dict]) -> dict[str, int]:
     return out
 
 
+def price_anchors(ents: list[dict]) -> dict[str, int]:
+    """lot_index -> where the lot's own price terms start. Lots that share
+    one property description (a sub-schedule, flats in one building) still
+    each print their own reserve price, so this places them when
+    :func:`anchors` cannot."""
+    out: dict[str, int] = {}
+    for e in ents:
+        li = _lot(e)
+        if li is None or e.get("cls") != "auction_terms" or e.get("start") is None:
+            continue
+        out[li] = min(out.get(li, e["start"]), e["start"])
+    return out
+
+
 def _is_rotation(seq: list[int]) -> bool:
     """4, 5, 6, 1, 2, 3: two increasing runs, the second starting at 1."""
     drops = [i for i in range(1, len(seq)) if seq[i] < seq[i - 1]]
@@ -129,7 +143,11 @@ def plan(ents: list[dict], md: str | None = None,
         missing = sorted(lots - set(at), key=lambda x: (len(x), x))
         return {}, f"cannot place lot(s) {missing}"
     if len(set(at.values())) != len(at):
-        return {}, "several lots share one description — cannot order by position"
+        # Lots sharing one description: place each by its own price line.
+        by_price = price_anchors(ents)
+        if set(by_price) != lots or len(set(by_price.values())) != len(by_price):
+            return {}, "several lots share one description — cannot order by position"
+        at = by_price
     order = sorted(at, key=lambda li: at[li])
     if not all(li.isdigit() for li in order):
         return {}, "non-numeric lot numbers"

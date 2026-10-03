@@ -30,9 +30,35 @@ from google.genai import models as _genai_models
 from pipeline import langextract_examples as LX
 
 # Gemini 2.5 Flash list price ($/1M tokens). Cached input bills ~25% of input.
+# Used only for calls whose model is not in MODEL_PRICES below.
 PRICE_IN = 0.30
 PRICE_OUT = 2.50
 CACHED_INPUT_DISCOUNT = 0.25
+
+#: $/1M tokens (input, output, cached input) per model, from OpenRouter's
+#: /api/v1/models on 2026-10-01. The counter used to price every call at
+#: Gemini Flash rates while routing sent them to DeepSeek
+#: (docs/extraction-pipeline-audit-2026-08.md §7); each call is now priced
+#: by the model it was sent to. Override with EXTRACT_MODEL_PRICES_JSON.
+MODEL_PRICES: dict[str, tuple[float, float, float]] = {
+    "deepseek/deepseek-v4.1-flash": (0.027, 0.60, 0.027),
+    "deepseek/deepseek-v4-pro": (0.2417, 0.4834, 0.0201),
+    "google/gemini-2.5-flash": (0.30, 2.50, 0.075),
+    "gemini-2.5-flash": (0.30, 2.50, 0.075),
+}
+
+
+def _prices(model: str | None) -> tuple[float, float, float]:
+    import json
+    import os
+    extra = os.environ.get("EXTRACT_MODEL_PRICES_JSON")
+    table = dict(MODEL_PRICES)
+    if extra:
+        try:
+            table.update({k: tuple(v) for k, v in json.loads(extra).items()})
+        except (ValueError, TypeError):
+            pass
+    return table.get(model or "", (PRICE_IN, PRICE_OUT, PRICE_IN * CACHED_INPUT_DISCOUNT))
 
 
 @dataclass
@@ -42,18 +68,25 @@ class Usage:
     cached_tokens: int = 0          # input served from cache
     output_tokens: int = 0
     docs: int = 0
+    cost: float = 0.0               # priced per call by the model that served it
     _patched: bool = field(default=False, repr=False)
 
-    def add(self, um) -> None:
+    def _price(self, model, billed_in: int, cached: int, out: int) -> None:
+        pin, pout, pcache = _prices(model)
+        self.cost += billed_in / 1e6 * pin + cached / 1e6 * pcache + out / 1e6 * pout
+
+    def add(self, um, model: str | None = "gemini-2.5-flash") -> None:
         """Record Gemini-direct usage_metadata (google-genai field names)."""
         self.calls += 1
         total_in = getattr(um, "prompt_token_count", 0) or 0
         cached = getattr(um, "cached_content_token_count", 0) or 0
+        out = getattr(um, "candidates_token_count", 0) or 0
         self.cached_tokens += cached
         self.prompt_tokens += max(total_in - cached, 0)
-        self.output_tokens += getattr(um, "candidates_token_count", 0) or 0
+        self.output_tokens += out
+        self._price(model, max(total_in - cached, 0), cached, out)
 
-    def add_openai(self, usage) -> None:
+    def add_openai(self, usage, model: str | None = None) -> None:
         """Record OpenAI/OpenRouter-style usage (chat.completions response.usage)."""
         self.calls += 1
         total_in = getattr(usage, "prompt_tokens", 0) or 0
@@ -61,23 +94,20 @@ class Usage:
         details = getattr(usage, "prompt_tokens_details", None)
         if details is not None:
             cached = getattr(details, "cached_tokens", 0) or 0
+        out = getattr(usage, "completion_tokens", 0) or 0
         self.cached_tokens += cached
         self.prompt_tokens += max(total_in - cached, 0)
-        self.output_tokens += getattr(usage, "completion_tokens", 0) or 0
+        self.output_tokens += out
+        self._price(model, max(total_in - cached, 0), cached, out)
 
     @property
     def est_cost(self) -> float:
-        return (
-            self.prompt_tokens / 1e6 * PRICE_IN
-            + self.cached_tokens / 1e6 * PRICE_IN * CACHED_INPUT_DISCOUNT
-            + self.output_tokens / 1e6 * PRICE_OUT
-        )
+        return self.cost
 
     def report(self) -> str:
         full_in = self.prompt_tokens + self.cached_tokens
         hit = (self.cached_tokens / full_in * 100) if full_in else 0.0
-        no_cache = (full_in / 1e6 * PRICE_IN
-                    + self.output_tokens / 1e6 * PRICE_OUT)
+        no_cache = self.cost + self.cached_tokens / 1e6 * PRICE_IN * (1 - CACHED_INPUT_DISCOUNT)
         per_doc = self.est_cost / self.docs if self.docs else 0.0
         return (
             f"docs={self.docs}  llm_calls={self.calls}\n"
@@ -109,7 +139,7 @@ def install_usage_tracking() -> None:
         resp = orig_genai(self, *a, **k)
         um = getattr(resp, "usage_metadata", None)
         if um is not None:
-            USAGE.add(um)
+            USAGE.add(um, k.get("model") or "gemini-2.5-flash")
         return resp
 
     _genai_models.Models.generate_content = patched_genai
@@ -123,7 +153,7 @@ def install_usage_tracking() -> None:
             resp = orig_oai(self, *a, **k)
             usage = getattr(resp, "usage", None)
             if usage is not None:
-                USAGE.add_openai(usage)
+                USAGE.add_openai(usage, k.get("model"))
             return resp
 
         _oai.Completions.create = patched_oai

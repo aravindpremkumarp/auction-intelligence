@@ -168,6 +168,21 @@ OPENROUTER_MODEL_EXTRACT_RETRY = os.getenv(
 LANGEXTRACT_REASONING_OFF_MODELS = os.getenv(
     "LANGEXTRACT_REASONING_OFF_MODELS", "deepseek",
 )
+# ── which extraction reader writes Document.extraction_json ─────────────────
+# "langextract" (today's reader), "v2" (pipeline/reader: lot-first,
+# schema-locked, code-grounded) or "shadow" (v1 is written, v2 runs beside it
+# and is stored under extraction_shadow_* for comparison). Read at call time
+# by pipeline/extract_entry, so a cron can flip it with an env var alone.
+EXTRACT_READER = os.getenv("EXTRACT_READER", "langextract")
+# A notice whose OCR health is below this is not read: the second hop cannot
+# recover what the first dropped (docs/extraction-pipeline-review-2026-07.md).
+# It is stamped extraction_skipped_reason='ocr_health' for the re-OCR queue.
+EXTRACT_MIN_OCR_HEALTH = int(os.getenv("EXTRACT_MIN_OCR_HEALTH", "90"))
+# Pin the OpenRouter hosts the v2 reader may use (comma-separated provider
+# names), so one batch is not spread across hosts with different
+# quantisations; empty lets OpenRouter choose.
+OPENROUTER_EXTRACT_PROVIDER_ORDER = os.getenv("OPENROUTER_EXTRACT_PROVIDER_ORDER", "")
+
 # Doc-type classifier for the dossier locker — places an uploaded user document
 # into the 9-category / ~50-type taxonomy (api/dossier/taxonomy.py);
 # gemini-2.5-flash is cheap and accurate on this kind of label-selection task.

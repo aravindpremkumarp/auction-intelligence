@@ -180,3 +180,100 @@ def test_mixed_type_lot_index_does_not_crash_the_run():
     rows, (_, _, count_ok) = LE.score_records(g, recs)
     assert count_ok
     assert rows
+
+
+# ── 3. repeats, wrong-lot bindings, gold export (offline) ─────────────────────
+def _swap_emd(recs: list[dict]) -> list[dict]:
+    """Lot 1 and lot 2 exchange EMDs — both values grounded, both misbound."""
+    out = [dict(r, attrs=dict(r["attrs"])) for r in recs]
+    terms = [r for r in out if r["cls"] == "auction_terms"]
+    terms[0]["attrs"]["emd_num"], terms[1]["attrs"]["emd_num"] = (
+        terms[1]["attrs"]["emd_num"], terms[0]["attrs"]["emd_num"])
+    return out
+
+
+def test_wrong_lot_bindings_names_the_misbound_field():
+    g = _by_aid("753006")
+    assert LE.wrong_lot_bindings(g, _perfect_records(g)) == []
+    wrong = LE.wrong_lot_bindings(g, _swap_emd(_perfect_records(g)))
+    fields = {(tag, f) for tag, f, _v, _under in wrong}
+    assert ("lot1", "emd") in fields and ("lot2", "emd") in fields
+
+
+def test_grade_and_summarise_report_spread_across_repeats():
+    g = _by_aid("750348")
+    perfect = LE.grade(g, _perfect_records(g))
+    broken = LE.grade(g, _swap_emd(_perfect_records(g)))
+    assert perfect["correct"] == perfect["total"]
+    assert broken["correct"] < broken["total"]
+    assert perfect["key_total"] > 0 and perfect["key_correct"] == perfect["key_total"]
+    s = LE.summarise(g, [perfect, broken, perfect])
+    assert s["repeats"] == 3
+    assert s["accuracy"]["max"] == 100.0 and s["accuracy"]["min"] < 100.0
+    assert s["lot_count_ok_every_repeat"] is True
+    assert s["wrong_lot_bindings"] == 2
+
+
+def test_build_report_pools_fields_and_strata():
+    gold = [_by_aid("753006"), _by_aid("750348")]
+    runs = {}
+    for g in gold:
+        recs = _perfect_records(g)
+        runs[g["aid"]] = [{"records": recs, "meta": {"usage": {"cost": 0.01, "calls": 1}, "seconds": 3.0},
+                           "grade": LE.grade(g, recs)} for _ in range(2)]
+    rep = LE.build_report(gold, runs, reader="langextract", stability="none",
+                          manifest={"753006": {"strata": ["multi", "lakh_units"]},
+                                    "750348": {"strata": ["multi"]}})
+    assert rep["repeats"] == 2 and rep["notices"] == 2
+    assert rep["overall"]["wrong_lot_bindings"] == 0
+    assert rep["overall"]["lot_count_exact_every_repeat"] is True
+    assert rep["overall"]["key_fact_recall"] == 100.0
+    assert rep["overall"]["cost_per_correct_key_fact_usd"] is not None
+    assert rep["per_stratum"]["multi"]["notices"] == 2
+    assert rep["per_stratum"]["lakh_units"]["notices"] == 1
+    assert rep["per_field"]["recall_by_field"]["reserve"]["pct"] == 100.0
+    assert rep["per_field"]["closed_world"]["precision"] == 100.0
+
+
+def test_is_key_row():
+    assert LE.is_key_row("reserve_price_num") and LE.is_key_row("lot4:emd")
+    assert LE.is_key_row("lot2:village") and not LE.is_key_row("lot2:id:flat")
+    assert not LE.is_key_row("legal_basis")
+
+
+def test_export_emits_lots_expect_null_and_spans():
+    from evals.export_review_gold import (_gold_fields, _gold_lots,
+                                          _description_spans, _person_absent)
+    from evals.langextract_eval import flatten_records
+    recs = [
+        {"cls": "secured_creditor", "text": "Canara Bank", "start": 0, "end": 11,
+         "attrs": {"legal_basis": "SARFAESI", "bank_name": "Canara Bank"}},
+        {"cls": "full_description", "text": "Flat G-2 ...", "start": 100, "end": 400,
+         "attrs": {"lot_index": "1"}},
+        {"cls": "auction_terms", "text": "", "start": None, "end": None,
+         "attrs": {"reserve_price_num": "3515000", "emd_num": "351500", "lot_index": "1"}},
+        {"cls": "location", "text": "", "start": None, "end": None,
+         "attrs": {"village": "Varadharajapuram", "lot_index": "1"}},
+        {"cls": "identifier", "text": "", "start": None, "end": None,
+         "attrs": {"kind": "flat", "value": "G-2", "lot_index": "1"}},
+        {"cls": "full_description", "text": "Land ...", "start": 500, "end": 900,
+         "attrs": {"lot_index": "2"}},
+        {"cls": "auction_terms", "text": "", "start": None, "end": None,
+         "attrs": {"reserve_price_num": "2817600", "lot_index": "2"}},
+    ]
+    lots = _gold_lots(recs)
+    assert [lot["reserve_price_num"] for lot in lots] == [3515000, 2817600]
+    assert lots[0]["emd_num"] == 351500 and lots[0]["village"] == "Varadharajapuram"
+    assert lots[0]["identifiers"] == {"flat": "G-2"}
+    assert _description_spans(recs) == {"1": [100, 400], "2": [500, 900]}
+    cj = json.dumps({"absent:1:possession_type": {"by": "a@b.com", "at": "t"},
+                     "absent:2:extent": {"by": "auto", "rule": "no_clue"}})
+    absent = _person_absent(cj)
+    assert absent == {("1", "possession_type")}
+    fields, ids = _gold_fields(flatten_records(recs), multi=True, person_absent=absent)
+    assert fields["possession_type"] == LE.EXPECT_NULL_JSON
+    assert "reserve_price_num" not in fields and "village" not in fields
+    assert ids == {}
+    single_fields, single_ids = _gold_fields(flatten_records(recs))
+    assert single_fields["reserve_price_num"] == 2817600 or single_fields["reserve_price_num"] == 3515000
+    assert single_ids == {"flat": "G-2"}

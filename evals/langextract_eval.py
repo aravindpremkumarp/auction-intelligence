@@ -7,15 +7,36 @@ substring-tolerant for names/places; exact for money). Prints per-notice scores,
 an overall accuracy, and — most usefully — the list of MISSES so each prompt/
 example change can be judged by the number instead of eyeballing HTML.
 
-Run:  python -m evals.langextract_eval        (needs GOOGLE_API_KEY / LANGEXTRACT_API_KEY)
+Run (production-routed, three repeats, results written for later comparison):
+
+    python -m evals.langextract_eval --reader langextract --repeats 3 \
+        --out evals/results/baseline-v1.json
+    python -m evals.langextract_eval --reader v2 --repeats 3 --stability verify
+
+``--reader langextract`` reads exactly the way the cron path does today
+(scripts/reset_langextract_and_extract.read_notice: production model routing,
+passes, lot chunking); ``--reader v2`` uses pipeline/reader. ``--repeats``
+extracts every notice N times and reports mean / min / max, because a single
+run cannot tell a prompt change from run-to-run noise (two identical runs once
+scored 48% and 88% on one notice — evals/CONTEXTGEM_FINDINGS.md). The JSON
+written by ``--out`` keeps the raw records of every repeat, so
+``--rescore FILE`` re-grades a past run without spending a call.
 """
 from __future__ import annotations
 
+import argparse
 import collections
+import json
 import os
+import statistics
+import time
 from pathlib import Path
 
 from evals.langextract_gold import EXPECT_NULL, GOLD
+
+#: How a reviewer-verified gold file spells EXPECT_NULL (a sentinel object
+#: cannot be JSON). evals/export_review_gold.py writes it; load_gold reads it.
+EXPECT_NULL_JSON = "<EXPECT_NULL>"
 
 
 def extract_robust(md: str, tries: int = 3, *, model_id: str | None = None,
@@ -64,7 +85,6 @@ def load_notice_context() -> dict[str, dict]:
     Missing or unreadable file -> {} , which degrades to the old
     context-free behaviour rather than failing the run.
     """
-    import json
     try:
         obj = json.loads(NOTICE_CONTEXT.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -74,15 +94,37 @@ def load_notice_context() -> dict[str, dict]:
 
 def load_gold() -> list[dict]:
     """Seed gold + reviewer-verified gold (deduped by aid; reviewed wins)."""
-    import json
     gold = {g["aid"]: g for g in GOLD}
     if REVIEWED_GOLD.exists():
         try:
             for g in json.loads(REVIEWED_GOLD.read_text(encoding="utf-8")):
-                gold[g["aid"]] = g          # human-verified overrides seed
+                gold[g["aid"]] = _decode_gold(g)   # human-verified overrides seed
         except (json.JSONDecodeError, OSError):
             pass
     return list(gold.values())
+
+
+def _decode_gold(g: dict) -> dict:
+    """Turn the JSON spelling of EXPECT_NULL back into the sentinel."""
+    fields = {k: (EXPECT_NULL if v == EXPECT_NULL_JSON else v)
+              for k, v in (g.get("fields") or {}).items()}
+    return {**g, "fields": fields}
+
+
+# Which strata each gold notice belongs to (single / multi / html_table /
+# tamil / ...), and the failure mode it was picked for. The eval reports per
+# stratum so a regression on, say, 40-lot tables is not averaged away by the
+# single-lot majority. Maintained by hand for the seed set and by
+# scripts/gold_candidates.py for notices promoted from review.
+GOLD_MANIFEST = Path(__file__).resolve().parent / "gold_manifest.json"
+
+
+def load_manifest() -> dict[str, dict]:
+    try:
+        obj = json.loads(GOLD_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return obj.get("notices", {}) if isinstance(obj, dict) else {}
 _SC_KEYS = ("legal_basis", "bank_name", "assignor_bank", "trust_name",
             "court_reference")
 _LOC_KEYS = ("village", "taluk", "district", "registration_district",
@@ -342,67 +384,395 @@ def score_records(g: dict, records: list[dict]) -> tuple:
     return rows, lot_stats
 
 
-def main() -> int:
+
+# ── running the readers ───────────────────────────────────────────────────────
+READERS = ("langextract", "v2")
+STABILITY = ("none", "verify", "double")
+
+# Rows that name one of the key facts a lot is unusable without
+# (pipeline/key_entities.KEY_ENTITIES, plus the lot-level money rows of
+# score_multi). "Cost per correctly extracted key fact" counts these only.
+_KEY_ROW_NAMES = frozenset({"reserve_price_num", "emd_num", "village",
+                            "possession_type", "borrower_primary"})
+_KEY_ROW_SUFFIXES = (":reserve", ":emd", ":village")
+
+
+def is_key_row(key: str) -> bool:
+    return key in _KEY_ROW_NAMES or key.endswith(_KEY_ROW_SUFFIXES)
+
+
+def _usage_snapshot() -> dict:
+    """Token/cost counters of pipeline.langextract_run.USAGE, or zeros."""
+    try:
+        from pipeline.langextract_run import USAGE
+    except Exception:  # pragma: no cover - dependency-free fallback
+        return {"calls": 0, "prompt_tokens": 0, "cached_tokens": 0,
+                "output_tokens": 0, "cost": 0.0}
+    return {"calls": USAGE.calls, "prompt_tokens": USAGE.prompt_tokens,
+            "cached_tokens": USAGE.cached_tokens,
+            "output_tokens": USAGE.output_tokens, "cost": USAGE.est_cost}
+
+
+def _usage_delta(before: dict, after: dict) -> dict:
+    return {k: round(after[k] - before[k], 6) for k in before}
+
+
+def run_reader(reader: str, g: dict, md: str, ctx: dict, *,
+               stability: str = "verify") -> tuple[list[dict], dict]:
+    """One read of one notice. Returns (stored-shape entities, meta).
+
+    ``langextract`` is the production path (scripts/reset_langextract_and_extract
+    .read_notice): routed model, routed passes, lot chunking when the reviewer
+    count allows it. ``v2`` is pipeline/reader. Both return entities in the
+    Document.extraction_json shape ({cls, text, start, end, attrs}).
+    """
+    before = _usage_snapshot()
+    t0 = time.monotonic()
+    meta: dict = {"reader": reader}
+    if reader == "langextract":
+        from pipeline.langextract_run import install_usage_tracking
+        from scripts.reset_langextract_and_extract import read_notice
+        install_usage_tracking()
+        d = {"md": md, "filename": ctx.get("filename") or f"{g['aid']}.txt",
+             "notice_type": g.get("notice_type"),
+             "expected_lot_count": ctx.get("expected_lot_count"),
+             "roster": ctx.get("roster")}
+        ents, model_id = read_notice(d, route=True)
+        meta["model"] = model_id
+    elif reader == "v2":
+        try:
+            from pipeline.reader import read_notice as read_v2
+        except ImportError as e:  # PR2+ lands the package
+            raise SystemExit(f"--reader v2 is not available yet: {e}")
+        res = read_v2(md, expected_lot_count=ctx.get("expected_lot_count"),
+                      roster=ctx.get("roster"), notice_type=g.get("notice_type"),
+                      stability=stability)
+        ents = res.entities
+        meta.update({"model": res.model, "segmentation": res.segmentation,
+                     "dropped": res.dropped, "telemetry": res.telemetry})
+    else:
+        raise ValueError(f"unknown reader {reader!r}")
+    meta["seconds"] = round(time.monotonic() - t0, 1)
+    meta["usage"] = _usage_delta(before, _usage_snapshot())
+    return ents, meta
+
+
+# ── extra graders ─────────────────────────────────────────────────────────────
+def wrong_lot_bindings(g: dict, records: list[dict]) -> list[tuple]:
+    """Gold lot fields whose value the extraction holds under ANOTHER lot.
+
+    A value can be perfectly grounded and still be wrong when it is bound to
+    the neighbouring lot (lot 2's EMD under lot 1). score_multi already fails
+    the row; this names the misbinding so the acceptance bar can require zero.
+    Returns [(lot_tag, field, value, found_under_lot_index)].
+    """
+    if not g.get("lots"):
+        return []
+    groups = group_by_lot(records)
+    lot_groups = [gr for gr in groups if gr["reserves"]]
+    out: list[tuple] = []
+    used: set = set()
+    for i, lot in enumerate(g["lots"], start=1):
+        grp, gi = _match_group(lot, lot_groups, used)
+        if gi is not None:
+            used.add(gi)
+        if grp is None:
+            continue
+        checks = []
+        if lot.get("emd_num") is not None:
+            checks.append(("emd", _fnum(lot["emd_num"]), "emds", None))
+        for key, setk in _LOC_SETS:
+            if lot.get(key):
+                checks.append((key, lot[key], setk, None))
+        for kind, val in (lot.get("identifiers") or {}).items():
+            checks.append((f"id:{kind}", val, "identifiers", kind))
+        for field_name, val, setk, kind in checks:
+            here = grp["identifiers"].get(kind, set()) if kind else grp[setk]
+            hit = (val in here) if setk == "emds" else any(_smatch(val, x) for x in here)
+            if hit:
+                continue
+            for other in lot_groups:
+                if other is grp:
+                    continue
+                there = other["identifiers"].get(kind, set()) if kind else other[setk]
+                found = (val in there) if setk == "emds" else any(_smatch(val, x) for x in there)
+                if found:
+                    out.append((f"lot{i}", field_name, val, other["lot_index"]))
+                    break
+    return out
+
+
+def _span_iou(a: tuple, b: tuple) -> float:
+    s = max(a[0], b[0])
+    e = min(a[1], b[1])
+    inter = max(0, e - s)
+    union = (a[1] - a[0]) + (b[1] - b[0]) - inter
+    return inter / union if union else 0.0
+
+
+def fd_iou(g: dict, records: list[dict]) -> dict[str, float]:
+    """Per-lot IoU between the extracted full_description span and the gold
+    ``description_spans`` ({lot_index: [start, end]}), when the gold has
+    them (reviewer-verified gold does; the hand-labelled seed does not)."""
+    spans = g.get("description_spans") or {}
+    if not spans:
+        return {}
+    got: dict[str, tuple] = {}
+    for r in records:
+        if r.get("cls") != "full_description" or r.get("start") is None:
+            continue
+        li = str((r.get("attrs") or {}).get("lot_index") or "1")
+        got.setdefault(li, (r["start"], r["end"]))
+    return {li: (_span_iou(tuple(sp), got[li]) if li in got else 0.0)
+            for li, sp in spans.items()}
+
+
+# ── aggregation over repeats ──────────────────────────────────────────────────
+def grade(g: dict, records: list[dict], md: str = "") -> dict:
+    """Everything one repeat of one notice is judged on, as plain data."""
+    from pipeline.validators import validate_stored
+    rows, lot_stats = score_records(g, records)
+    correct = sum(1 for *_, ok in rows if ok)
+    key_rows = [r for r in rows if is_key_row(r[0])]
+    v = validate_stored(records, md) if records else {"score": 0, "issues": [], "stats": {}}
+    return {
+        "rows": [(k, _plain(gd), _plain(got), bool(ok)) for k, gd, got, ok in rows],
+        "correct": correct, "total": len(rows),
+        "key_correct": sum(1 for *_, ok in key_rows if ok),
+        "key_total": len(key_rows),
+        "lot_stats": lot_stats,
+        "wrong_lot": wrong_lot_bindings(g, records),
+        "fd_iou": fd_iou(g, records),
+        "validator_score": v["score"],
+        "issue_codes": sorted({i["code"] for i in v.get("issues", [])}),
+        "ungrounded": sum(1 for r in records if r.get("start") is None),
+        "n_entities": len(records),
+    }
+
+
+def _plain(v):
+    if v is EXPECT_NULL:
+        return EXPECT_NULL_JSON
+    if isinstance(v, (set, frozenset)):
+        return sorted(v)
+    return v
+
+
+def summarise(g: dict, grades: list[dict]) -> dict:
+    """mean / min / max across the repeats of one notice."""
+    acc = [gr["correct"] / gr["total"] * 100 if gr["total"] else 0.0 for gr in grades]
+    ents = [gr["n_entities"] for gr in grades]
+    lot_ok = [gr["lot_stats"][2] for gr in grades if gr["lot_stats"] is not None]
+    fd = [statistics.mean(gr["fd_iou"].values()) for gr in grades if gr["fd_iou"]]
+    return {
+        "aid": g["aid"], "notice_type": g.get("notice_type"),
+        "repeats": len(grades),
+        "accuracy": {"mean": round(statistics.mean(acc), 1),
+                     "min": round(min(acc), 1), "max": round(max(acc), 1)},
+        "entities": {"min": min(ents), "max": max(ents)},
+        "validator": {"min": min(gr["validator_score"] for gr in grades),
+                      "max": max(gr["validator_score"] for gr in grades)},
+        "lot_count_ok_every_repeat": all(lot_ok) if lot_ok else None,
+        "wrong_lot_bindings": sum(len(gr["wrong_lot"]) for gr in grades),
+        "ungrounded": sum(gr["ungrounded"] for gr in grades),
+        "fd_iou_mean": round(statistics.mean(fd), 3) if fd else None,
+        "key_correct": sum(gr["key_correct"] for gr in grades),
+        "key_total": sum(gr["key_total"] for gr in grades),
+    }
+
+
+def per_field(gold: list[dict], runs: dict[str, list[dict]]) -> dict:
+    """Precision / recall on the closed-world fields, pooled over every repeat
+    (evals/prf_score), plus per-row recall by field name."""
+    from evals import prf_score
+    prfs = []
+    for i in range(max((len(v) for v in runs.values()), default=0)):
+        by_aid = {aid: reps[i]["records"] for aid, reps in runs.items() if i < len(reps)}
+        prfs.append(prf_score.score_prf(gold, by_aid))
+    recall: dict[str, list[int]] = collections.defaultdict(lambda: [0, 0])
+    for reps in runs.values():
+        for rep in reps:
+            for key, _gd, _got, ok in rep["grade"]["rows"]:
+                name = key.split(":", 1)[1] if key.startswith("lot") and ":" in key else key
+                recall[name][0] += int(ok)
+                recall[name][1] += 1
+    return {
+        "closed_world": {
+            "precision": round(statistics.mean(p.precision for p in prfs) * 100, 1) if prfs else None,
+            "recall": round(statistics.mean(p.recall for p in prfs) * 100, 1) if prfs else None,
+            "invented": sum(len(p.invented) for p in prfs),
+            "slotting": sum(len(p.slotting) for p in prfs),
+        },
+        "recall_by_field": {k: {"correct": v[0], "total": v[1],
+                                "pct": round(v[0] / v[1] * 100, 1)}
+                            for k, v in sorted(recall.items())},
+    }
+
+
+def per_stratum(summaries: list[dict], manifest: dict) -> dict:
+    out: dict[str, dict] = {}
+    for s in summaries:
+        strata = (manifest.get(s["aid"]) or {}).get("strata") or [s["notice_type"] or "?"]
+        for st in strata:
+            b = out.setdefault(st, {"notices": 0, "accuracy_mean": [], "wrong_lot": 0,
+                                    "ungrounded": 0, "lot_count_fail": 0})
+            b["notices"] += 1
+            b["accuracy_mean"].append(s["accuracy"]["mean"])
+            b["wrong_lot"] += s["wrong_lot_bindings"]
+            b["ungrounded"] += s["ungrounded"]
+            if s["lot_count_ok_every_repeat"] is False:
+                b["lot_count_fail"] += 1
+    for b in out.values():
+        b["accuracy_mean"] = round(statistics.mean(b["accuracy_mean"]), 1)
+    return out
+
+
+def build_report(gold: list[dict], runs: dict[str, list[dict]], *, reader: str,
+                 stability: str, manifest: dict | None = None) -> dict:
+    manifest = manifest if manifest is not None else load_manifest()
+    by_aid = {g["aid"]: g for g in gold}
+    summaries = [summarise(by_aid[aid], [r["grade"] for r in reps])
+                 for aid, reps in runs.items()]
+    usage = collections.Counter()
+    seconds = []
+    for reps in runs.values():
+        for rep in reps:
+            usage.update(rep["meta"].get("usage") or {})
+            seconds.append(rep["meta"].get("seconds") or 0)
+    key_correct = sum(s["key_correct"] for s in summaries)
+    total = sum(s["key_total"] for s in summaries)
+    cost = usage.get("cost", 0.0)
+    return {
+        "reader": reader, "stability": stability,
+        "notices": len(runs), "repeats": max((len(v) for v in runs.values()), default=0),
+        "overall": {
+            "accuracy_mean": round(statistics.mean(s["accuracy"]["mean"] for s in summaries), 1) if summaries else None,
+            "lot_count_exact_every_repeat": all(s["lot_count_ok_every_repeat"] is not False for s in summaries),
+            "wrong_lot_bindings": sum(s["wrong_lot_bindings"] for s in summaries),
+            "ungrounded_entities": sum(s["ungrounded"] for s in summaries),
+            "spread_le_5pts": sum(1 for s in summaries if s["accuracy"]["max"] - s["accuracy"]["min"] <= 5),
+            "key_fact_recall": round(key_correct / total * 100, 1) if total else None,
+            "cost_usd": round(cost, 4),
+            "cost_per_correct_key_fact_usd": round(cost / key_correct, 5) if key_correct else None,
+            "seconds_p95": round(sorted(seconds)[int(0.95 * (len(seconds) - 1))], 1) if seconds else None,
+            "usage": dict(usage),
+        },
+        "per_field": per_field(gold, runs),
+        "per_stratum": per_stratum(summaries, manifest),
+        "notices_detail": summaries,
+    }
+
+
+def print_report(rep: dict) -> None:
+    o = rep["overall"]
+    print(f"\n{rep['reader']} (stability={rep['stability']}) — "
+          f"{rep['notices']} notices × {rep['repeats']} repeats")
+    for s in rep["notices_detail"]:
+        a = s["accuracy"]
+        lots = "" if s["lot_count_ok_every_repeat"] is None else (
+            "  lots OK" if s["lot_count_ok_every_repeat"] else "  lots ⚠")
+        wl = f"  wrong-lot={s['wrong_lot_bindings']}" if s["wrong_lot_bindings"] else ""
+        print(f"  {s['aid']} ({(s['notice_type'] or '?'):6}): "
+              f"{a['mean']:5.1f}% [{a['min']:.0f}–{a['max']:.0f}]  "
+              f"entities {s['entities']['min']}–{s['entities']['max']}"
+              f"{lots}{wl}")
+    print(f"\nACCURACY (mean of notice means): {o['accuracy_mean']}%")
+    print(f"KEY-FACT RECALL: {o['key_fact_recall']}%   "
+          f"WRONG-LOT BINDINGS: {o['wrong_lot_bindings']}   "
+          f"UNGROUNDED: {o['ungrounded_entities']}")
+    print(f"LOT COUNT exact on every repeat: {o['lot_count_exact_every_repeat']}   "
+          f"notices with spread ≤ 5 pts: {o['spread_le_5pts']}/{rep['notices']}")
+    cw = rep["per_field"]["closed_world"]
+    print(f"CLOSED-WORLD precision {cw['precision']}%  recall {cw['recall']}%  "
+          f"invented {cw['invented']}  slotting {cw['slotting']}")
+    print(f"COST ${o['cost_usd']}  per correct key fact "
+          f"${o['cost_per_correct_key_fact_usd']}  p95 {o['seconds_p95']}s/notice")
+    if rep["per_stratum"]:
+        print("\nPER STRATUM:")
+        for st, b in sorted(rep["per_stratum"].items()):
+            print(f"  {st:14} n={b['notices']:3}  acc {b['accuracy_mean']:5.1f}%  "
+                  f"wrong-lot {b['wrong_lot']}  ungrounded {b['ungrounded']}  "
+                  f"lot-count fails {b['lot_count_fail']}")
+    print("\nRECALL BY FIELD:")
+    for k, v in rep["per_field"]["recall_by_field"].items():
+        print(f"  {k:28} {v['correct']:3}/{v['total']:<3} {v['pct']:5.1f}%")
+
+
+def _json_default(o):
+    if isinstance(o, (set, frozenset)):
+        return sorted(o)
+    if isinstance(o, tuple):
+        return list(o)
+    return str(o)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--reader", choices=READERS, default="langextract")
+    ap.add_argument("--repeats", type=int, default=1)
+    ap.add_argument("--stability", choices=STABILITY, default="verify",
+                    help="v2 only: none | verify (key-facts check) | double")
+    ap.add_argument("--only", nargs="*", help="gold aids to run (default: all)")
+    ap.add_argument("--out", help="write the full report + raw records here")
+    ap.add_argument("--rescore", help="re-grade the records of a past --out file")
+    args = ap.parse_args(argv)
+
     os.environ.setdefault("LANGEXTRACT_API_KEY",
                           os.environ.get("GOOGLE_API_KEY", ""))
-    os.environ.setdefault("LANGEXTRACT_PASSES", "1")
-    from pipeline.validators import full_description_coverage
-    total = correct = 0
-    misses = []
-    multi_stats = []   # (aid, n_gold_lots, n_extracted_lots, count_ok)
-    fd_incomplete = []   # aids where full_description didn't cover all detail
     gold = load_gold()
+    if args.only:
+        gold = [g for g in gold if g["aid"] in set(args.only)]
     ctx = load_notice_context()
-    print(f"LangExtract eval — {len(gold)} notices "
-          f"({len(GOLD)} seed + {len(gold) - len(GOLD)} reviewer-verified, "
-          f"passes={os.environ['LANGEXTRACT_PASSES']}, "
-          f"context for {sum(1 for g in gold if g['aid'] in ctx)}/{len(gold)})\n")
-    for g in gold:
-        md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
-        c = ctx.get(g["aid"]) or {}
-        res = extract_robust(md,
-                             expected_lot_count=c.get("expected_lot_count"),
-                             roster=c.get("roster"))
-        records = _records(res)
-        rows, lot_stats = score_records(g, records)
-        c = sum(1 for *_, ok in rows if ok)
-        total += len(rows)
-        correct += c
-        lot_note = ""
-        if lot_stats is not None:
-            n_gold, n_got, count_ok = lot_stats
-            multi_stats.append((g["aid"], n_gold, n_got, count_ok))
-            lot_note = f"  lots={n_got}/{n_gold}{'' if count_ok else ' ⚠'}"
-        # source-of-truth check: does full_description cover every descriptive span?
-        cov = full_description_coverage(res.extractions)
-        fd_note = ""
-        if cov["lots_incomplete"] or cov["lots_missing_full_description"]:
-            fd_incomplete.append((g["aid"], cov))
-            fd_note = "  fd⚠"
-        print(f"  {g['aid']} ({g['notice_type']:6}): {c}/{len(rows)}{lot_note}{fd_note}")
-        misses += [(g["aid"], k, gd, got) for k, gd, got, ok in rows if not ok]
-    print(f"\nOVERALL ACCURACY: {correct}/{total} = {correct/total*100:.1f}%")
-    complete = len(gold) - len(fd_incomplete)
-    print(f"FULL_DESCRIPTION complete (covers all descriptive spans): "
-          f"{complete}/{len(gold)}")
-    for aid, cov in fd_incomplete:
-        bits = []
-        if cov["lots_missing_full_description"]:
-            bits.append(f"missing on lot(s) {cov['lots_missing_full_description']}")
-        if cov["lots_incomplete"]:
-            bits.append("outside: " + ", ".join(
-                f"lot {li} {cls}" for li, cls in cov["lots_incomplete"].items()))
-        print(f"  {aid}: {'; '.join(bits)}")
-    if multi_stats:
-        lc_ok = sum(1 for *_, ok in multi_stats if ok)
-        print(f"\nMULTI-LOT lot-count: {lc_ok}/{len(multi_stats)} notices correct")
-        for aid, n_gold, n_got, count_ok in multi_stats:
-            print(f"  {aid}: gold={n_gold} extracted={n_got} "
-                  f"{'OK' if count_ok else 'MISMATCH'}")
+    runs: dict[str, list[dict]] = {}
+
+    if args.rescore:
+        past = json.loads(Path(args.rescore).read_text(encoding="utf-8"))
+        args.reader, args.stability = past["reader"], past["stability"]
+        for aid, reps in past["runs"].items():
+            g = next((g for g in gold if g["aid"] == aid), None)
+            if g is None:
+                continue
+            md = (FIX / f"{aid}.txt").read_text(encoding="utf-8")
+            runs[aid] = [{"records": r["records"], "meta": r["meta"],
+                          "grade": grade(g, r["records"], md)} for r in reps]
+    else:
+        print(f"LangExtract eval — reader={args.reader} repeats={args.repeats} "
+              f"{len(gold)} notices ({len(GOLD)} seed + "
+              f"{len(gold) - len(GOLD)} reviewer-verified, "
+              f"context for {sum(1 for g in gold if g['aid'] in ctx)}/{len(gold)})\n")
+        for g in gold:
+            md = (FIX / f"{g['aid']}.txt").read_text(encoding="utf-8")
+            c = ctx.get(g["aid"]) or {}
+            for i in range(args.repeats):
+                ents, meta = run_reader(args.reader, g, md, c, stability=args.stability)
+                gr = grade(g, ents, md)
+                runs.setdefault(g["aid"], []).append(
+                    {"records": ents, "meta": meta, "grade": gr})
+                print(f"  {g['aid']} #{i + 1}: {gr['correct']}/{gr['total']}  "
+                      f"entities={gr['n_entities']}  {meta.get('seconds')}s", flush=True)
+
+    rep = build_report(gold, runs, reader=args.reader, stability=args.stability)
+    print_report(rep)
+    misses = [(aid, k, gd, got) for aid, reps in runs.items()
+              for r in reps for k, gd, got, ok in r["grade"]["rows"] if not ok]
     if misses:
         print("\nMISSES (auction_id  field  gold -> got):")
+        seen = set()
         for aid, key, gd, got in misses:
+            if (aid, key) in seen:
+                continue
+            seen.add((aid, key))
             print(f"  {aid}  {key:26} {gd!r:24} -> {got!r}")
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        rep_out = {**rep, "runs": {aid: [{"records": r["records"], "meta": r["meta"]}
+                                        for r in reps] for aid, reps in runs.items()},
+                   "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        out.write_text(json.dumps(rep_out, ensure_ascii=False, indent=1,
+                                  default=_json_default), encoding="utf-8")
+        print(f"\nwrote {out}")
     return 0
 
 

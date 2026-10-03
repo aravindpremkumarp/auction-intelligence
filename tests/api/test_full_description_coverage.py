@@ -133,3 +133,143 @@ def test_numeric_lot_index_is_the_same_lot_as_its_string_form():
 def test_validate_counts_one_lot_for_mixed_index_types():
     ex = [E("property", 100, 180, lot=1), E("location", 200, 240, lot="1")]
     assert validate(ex)["stats"]["lots"] == 1
+
+
+# ── what a detail outside the block does NOT prove (2026-10 sweep) ──────────
+# 78% of the notices this check flagged were flagged only by details that are
+# no sign of a cut-short block. Each test pins one group of the sweep — and the
+# real truncation it must still catch. Spans come from a page, so each detail
+# sits where it would in a notice.
+
+def _at(page, cls, text, lot="1", **attrs):
+    s = page.index(text)
+    return E(cls, s, s + len(text), lot=lot, text=text, **attrs)
+
+
+def _block(page, text, lot="1"):
+    return _at(page, "full_description", text, lot=lot)
+
+
+FD1 = ("All that piece and parcel of land bearing Door No.92/2, S.F.No.179/6, "
+       "Ponmeni Village, Madurai South Taluk, measuring 1200 sq.ft.")
+
+
+def test_boundaries_after_the_block_are_still_a_truncation():
+    page = FD1 + " Bounded by: North by: Vacant Land, South by: 30 feet road."
+    ex = [_block(page, FD1), _at(page, "boundary", "South by: 30 feet road")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {"1": ["boundary"]}
+    assert "full_description_incomplete" in _codes(ex)
+
+
+def test_a_detail_in_another_lots_block_is_a_wrong_lot_not_a_truncation():
+    fd2 = "Item 2: vacant site in Plot No 24, Zuzuvadi Village, Hosur Taluk."
+    page = FD1 + "\n\n" + fd2
+    ex = [_block(page, FD1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "identifier", "Plot No 24", lot="1", kind="plot")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}
+    assert cov["lots_wrong_lot"] == {"1": ["identifier"]}
+    report = validate(ex, page)
+    assert {i["code"] for i in report["issues"]} >= {"detail_wrong_lot"}
+    assert "full_description_incomplete" not in {i["code"] for i in report["issues"]}
+    assert report["stats"]["full_description_wrong_lot_lots"] == 1
+
+
+def test_the_same_fact_worded_differently_is_covered():
+    page = "Property Address: D.No. 92/2, Madurai. " + FD1
+    ex = [_block(page, FD1), _at(page, "identifier", "D.No. 92/2", kind="door_new")]
+    assert full_description_coverage(ex, page)["lots_incomplete"] == {}
+
+
+def test_a_place_named_in_the_block_is_covered_in_another_order():
+    page = FD1 + " Situated at Madurai South Taluk, Ponmeni Village."
+    ex = [_block(page, FD1),
+          _at(page, "location", "Madurai South Taluk, Ponmeni Village")]
+    assert full_description_coverage(ex, page)["lots_incomplete"] == {}
+
+
+def test_a_weak_number_is_not_matched_on_its_own():
+    """"Plot No.5" against a block that says "5 cents": a lone digit is no
+    evidence, so the detail stays outside."""
+    fd = "All that land measuring 5 cents in Ponmeni Village."
+    page = fd + " Also Plot No.5 in the layout."
+    ex = [_block(page, fd), _at(page, "identifier", "Plot No.5", kind="plot")]
+    assert full_description_coverage(ex, page)["lots_incomplete"] == {"1": ["identifier"]}
+
+
+def test_a_boundary_is_never_matched_on_numbers():
+    """Boundaries name neighbours ("Plot No.14"), whose numbers the block may
+    state for other reasons."""
+    fd = "Plot No.15 and Plot No.14 in S.No.11, measuring 2795 sq.ft."
+    page = fd + " Bounded by West: Plot No.14."
+    ex = [_block(page, fd), _at(page, "boundary", "West: Plot No.14")]
+    assert full_description_coverage(ex, page)["lots_incomplete"] == {"1": ["boundary"]}
+
+
+def test_other_spacing_and_an_elided_quote_are_covered():
+    page = FD1 + " Door  No. 92 / 2 ;  S.F.No.179/6 ... Madurai South Taluk"
+    ex = [_block(page, FD1),
+          _at(page, "identifier", "Door  No. 92 / 2", kind="door_new"),
+          _at(page, "location", "S.F.No.179/6 ... Madurai South Taluk")]
+    assert full_description_coverage(ex, page)["lots_incomplete"] == {}
+
+
+def test_the_heading_line_and_an_edge_quote_are_covered():
+    head = "Item No.1: Residential house site"
+    page = head + ": " + FD1
+    ex = [_block(page, FD1), _at(page, "property", head),
+          E("identifier", page.index(FD1) - 5, page.index(FD1) + 10, text="x")]
+    assert full_description_coverage(ex, page)["lots_incomplete"] == {}
+
+
+def test_records_about_the_property_are_excused_not_scored():
+    page = (FD1 + " Property ID: IDIB6622770038. CERSAI ID: 400058772922."
+            " Latitude: 12.77495 Longitude: 80.04116. Encumbrance(s): Not Known")
+    ex = [_block(page, FD1),
+          _at(page, "identifier", "Property ID: IDIB6622770038", kind="property_id"),
+          _at(page, "identifier", "400058772922", kind="cersai"),
+          _at(page, "location", "Latitude: 12.77495 Longitude: 80.04116"),
+          _at(page, "property", "Encumbrance(s): Not Known")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}
+    assert cov["lots_excused"] == {"1": {"coordinates": ["location"],
+                                         "record_id": ["identifier"],
+                                         "status": ["property"]}}
+    assert "full_description_incomplete" not in _codes(ex)
+
+
+def test_the_borrowers_address_is_excused():
+    page = ("Borrower: Mr. P. Thanigachalam, residing at No 33, Karunanidhi "
+            "Street, Anakaputhur village, Chennai-600070. " + FD1)
+    ex = [_block(page, FD1),
+          _at(page, "location", "Anakaputhur village, Chennai-600070")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}
+    assert cov["lots_excused"] == {"1": {"party_address": ["location"]}}
+
+
+def test_a_property_named_after_its_owner_is_not_a_borrowers_address():
+    """"W/o" or "Borrower" earlier on the line does not make the property
+    itself an address when the words right before it say property."""
+    page = ("Borrower: Mrs. Subamalini. Details of the Immovable Properties "
+            "Mortgaged: Kathattivayal Village, Sivaganga Taluk. " + FD1)
+    ex = [_block(page, FD1), _at(page, "location", "Kathattivayal Village, Sivaganga Taluk")]
+    assert full_description_coverage(ex, page)["lots_incomplete"] == {"1": ["location"]}
+
+
+def test_a_repeat_in_the_address_box_or_a_table_is_excused():
+    page = ("<table><tr><td>Possession</td><td>UDS-388 Sqft</td></tr></table> "
+            "Mortgaged Property Address: Flat No S4, Keelavalavu. " + FD1)
+    ex = [_block(page, FD1), _at(page, "extent", "UDS-388 Sqft"),
+          _at(page, "location", "Keelavalavu")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}
+    assert cov["lots_excused"] == {"1": {"address_box": ["location"],
+                                         "table": ["extent"]}}
+
+
+def test_without_the_page_the_context_tests_are_skipped():
+    page = "Mortgaged Property Address: Flat No S4, Keelavalavu. " + FD1
+    ex = [_block(page, FD1), _at(page, "location", "Keelavalavu")]
+    assert full_description_coverage(ex)["lots_incomplete"] == {"1": ["location"]}

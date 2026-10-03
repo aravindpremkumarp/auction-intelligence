@@ -86,6 +86,16 @@ class ExtractionField(BaseModel):
     # The reviewer added this entity by hand (an "add:*" correction): the model
     # never emitted it, so it can be deleted outright rather than corrected.
     added: bool = False
+    # Evidence (pipeline/reader): how sure the reader is, as a word —
+    # EXPLICIT / INHERITED / FUZZY_GROUNDED / CONTESTED / NOT_STATED /
+    # ILLEGIBLE / VERIFIED — and where the value came from.
+    evidence: str | None = None
+    page: int | None = None
+    source: str | None = None
+    method: str | None = None
+    inherited_from: str | None = None
+    rule: str | None = None
+    verified: str | None = None
 
 
 class KeyCell(BaseModel):
@@ -144,6 +154,10 @@ class ExtractionReviewOut(BaseModel):
     # failure so the reviewer sees why nothing changed.
     rerun_running: bool = False
     rerun_error: str | None = None
+    # Reviewer corrections a re-read could not place on any new entity
+    # (pipeline/extraction_ids): shown so a person can re-place them, never
+    # applied to a stranger and never deleted.
+    orphaned: list[dict] = []
     # Stitched notices (pipeline/notice_pages). A follower — page 2 of a
     # two-file notice — carries only stitched_into and no fields: its text and
     # lots are reviewed on the leader. A leader lists its pages and where each
@@ -321,6 +335,7 @@ EXTRACTION_FAILURES: dict[str, dict] = {
                       "cypher": f"coalesce(d.extraction_lot_count > {_EXPECTED_LOTS}, false)"},
     "rerun":         {"codes": (), "cypher": _STALE_CYPHER},
     "description":   {"codes": ("missing_full_description", "full_description_incomplete")},
+    "wrong-lot":     {"codes": ("detail_wrong_lot",)},
     "reserve":       {"codes": ("missing_reserve_price", "lot_missing_reserve")},
     "borrower":      {"codes": ("missing_borrower", "lot_missing_borrower")},
     "location":      {"codes": ("missing_location", "lot_missing_location")},
@@ -331,7 +346,13 @@ EXTRACTION_FAILURES: dict[str, dict] = {
     "ungrounded":    {"codes": ("ungrounded",)},
     "odd-values":    {"codes": ("reserve_out_of_range", "emd_ratio_off",
                                 "possession_type_invalid", "kind_invalid")},
+    # Evidence states the v2 reader stamps per document (pipeline/extraction_store).
+    "contested":     {"codes": (), "cypher": "coalesce(d.extraction_contested > 0, false)"},
+    "fuzzy":         {"codes": (), "cypher": "coalesce(d.extraction_fuzzy > 0, false)"},
+    "illegible":     {"codes": (), "cypher": "coalesce(d.extraction_illegible > 0, false)"},
+    "dropped":       {"codes": (), "cypher": "coalesce(d.extraction_dropped > 0, false)"},
 }
+_EVIDENCE_PILLS = ("contested", "fuzzy", "illegible", "dropped")
 
 
 def _failure_codes(failures: list[str] | None) -> list[str]:
@@ -353,7 +374,8 @@ def _failures_clause(failures: list[str] | None) -> str:
 
 
 def row_failures(issue_codes, extracted_lots: int | None,
-                 expected_lots: int | None, stale: bool) -> list[str]:
+                 expected_lots: int | None, stale: bool,
+                 evidence: dict | None = None) -> list[str]:
     """The failure keys one queue row carries, in filter-bar order — the same
     tests ``_failures_clause`` runs in Cypher, so a card always shows the pill
     that brought it into the filtered list."""
@@ -367,6 +389,8 @@ def row_failures(issue_codes, extracted_lots: int | None,
             hit = extracted_lots > expected_lots
         elif key == "rerun":
             hit = stale
+        elif key in _EVIDENCE_PILLS:
+            hit = bool((evidence or {}).get(key))
         if hit:
             out.append(key)
     return out
@@ -470,7 +494,10 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                coalesce(d.stitched_pages, [d.filename]) AS stitched_pages,
                d.extraction_json AS extraction_json,
                coalesce(d.extraction_corrections_json, '{{}}') AS corrections_json,
-               d.extraction_issue_codes AS issue_codes
+               d.extraction_issue_codes AS issue_codes,
+               d.extraction_contested AS contested, d.extraction_fuzzy AS fuzzy,
+               d.extraction_illegible AS illegible, d.extraction_dropped AS dropped,
+               d.extraction_reader AS reader
         ORDER BY {order}
         LIMIT $limit
         """,
@@ -779,10 +806,17 @@ def _build_fields(extraction_json: str, corrections_json: str,
     for i, e in enumerate(ents):
         fid = e.get("id") or str(i)
         c = {} if e.get("added") else (corr.get(fid) or {})
-        attrs = e.get("attrs") or {}
+        attrs = dict(e.get("attrs") or {})
+        # the reader's evidence attrs are typed fields, not values to edit
+        ev = {k: attrs.pop(k, None) for k in ("evidence", "page", "block_id", "source", "method",
+                                               "inherited_from", "rule", "verified", "reader",
+                                               "prompt_hash", "schema_version")}
+        attrs.pop("anchor", None)
         out.append(ExtractionField(
             id=fid, cls=e.get("cls", ""), text=e.get("text", ""),
             start=e.get("start"), end=e.get("end"),
+            evidence=ev["evidence"], page=ev["page"], source=ev["source"], method=ev["method"],
+            inherited_from=ev["inherited_from"], rule=ev["rule"], verified=ev["verified"],
             # Grounded means "we can point at it in the text on screen now",
             # not "the extractor once returned an offset" — a lost anchor has
             # to read as ungrounded or the UI keeps promising evidence it can
@@ -1001,7 +1035,8 @@ def extraction_queue(
             stitched_pages=len(r.get("stitched_pages") or [r["filename"]]),
             key_score=keys["score"], key_missing=keys["missing"],
             key_missing_labels=keys["missing_labels"],
-            failures=row_failures(r.get("issue_codes"), extracted, expected, stale)))
+            failures=row_failures(r.get("issue_codes"), extracted, expected, stale,
+                                  {k: r.get(k) for k in _EVIDENCE_PILLS})))
     # A genuine count, not len(out): the row list is capped by $limit, and the
     # "Confirm all N in range" button acts on the whole matching set — so a
     # capped total would understate what the button is about to verify.
@@ -1050,7 +1085,16 @@ def extraction_detail(
         stitched_page_offsets=[int(o) for o in (row.get("stitched_page_offsets") or [])],
         fields=_build_fields(row["extraction_json"], row["corrections_json"],
                              row.get("markdown"), stale),
+        orphaned=_orphaned(row.get("corrections_json")),
     )
+
+
+def _orphaned(corrections_json: str | None) -> list[dict]:
+    from pipeline.extraction_ids import orphans
+    try:
+        return orphans(json.loads(corrections_json or "{}"))
+    except (TypeError, ValueError):
+        return []
 
 
 @router.post("/{filename:path}/field", response_model=ExtractionReviewOut)
