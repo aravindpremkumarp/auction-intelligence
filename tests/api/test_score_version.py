@@ -19,46 +19,32 @@ def test_validate_reports_the_scale_it_scored_on():
         assert report["score_version"] == SCORE_VERSION
 
 
-def test_extract_write_stamps_the_current_version():
-    """pipeline.load_extractions._extract_one persists score + score version in
-    the same SET, so the two can never drift apart."""
+def test_extract_write_stamps_the_current_version(monkeypatch):
+    """Every write of extraction_json carries the scale it was scored on
+    (pipeline/extraction_store.write_extraction, through the reader switch)."""
+    import pipeline.extraction_store as ES
     import pipeline.load_extractions as le
-
     captured = {}
 
     def fake_run_query(cypher, params=None, **kw):
-        captured["cypher"] = cypher
-        captured["params"] = params or {}
+        if "d.extraction_json = $j" in cypher:
+            captured["cypher"] = cypher
+            captured["params"] = params or {}
         return [{"d.filename": "n.pdf"}]
 
-    class _Ent:
-        # One entity, because _extract_one writes nothing for an empty result:
-        # a model that returns no entities is a failed call, not a done page.
-        extraction_class = "bank_name"
-        extraction_text = "Indian Bank"
-        attributes: dict = {}
-        char_interval = None
-
-    class _Res:
-        extractions = [_Ent()]
-
-    class _LX:
-        @staticmethod
-        def extract(md, **kw):
-            return _Res()
-
-    orig = le.run_query
-    try:
-        le.run_query = fake_run_query
-        ok, _, log = le._extract_one({"filename": "n.pdf", "md": "text"},
-                                     batch=7, route=False, LX=_LX)
-    finally:
-        le.run_query = orig
-
+    ents = [{"id": "x", "cls": "secured_creditor", "text": "Indian Bank", "start": None,
+             "end": None, "attrs": {"bank_name": "Indian Bank"}}]
+    monkeypatch.setattr(le, "read_document", lambda d, route: (ents, "m", {"reader": "langextract"}))
+    monkeypatch.setattr(ES, "run_query", fake_run_query)
+    monkeypatch.setattr(ES, "previous", lambda fns: {})
+    monkeypatch.setattr(ES, "clear_auto_marks", lambda fns: None)
+    monkeypatch.setattr(ES, "stamp_key_scores", lambda fns: None)
+    monkeypatch.setattr(ES, "write_marks", lambda fn, m: 0)
+    ok, _, log = le._extract_one({"filename": "n.pdf", "md": "text"}, batch=7, route=False, LX=None)
     assert ok, log
     assert "d.extraction_score_version = $score_version" in captured["cypher"]
     assert captured["params"]["score_version"] == SCORE_VERSION
-
+    assert captured["params"]["batch"] == 7
 
 def test_copied_extraction_keeps_the_donors_version():
     """A twin copies the donor's entities, so it must copy the scale they were

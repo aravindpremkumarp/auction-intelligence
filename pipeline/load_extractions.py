@@ -53,6 +53,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from api.neo4j_client import run_query, run_read_query
 from api.review.grounding import ground_missing
 from pipeline.extract_routing import passes_for, select_extract_model
+from pipeline import config
+from pipeline.extraction_ids import assign_ids
+from pipeline.extract_entry import read_document
+from pipeline.extraction_store import KeptExisting, write_extraction
 from pipeline.absence import clear_auto_marks
 from pipeline.key_entities import stamp_key_scores
 from pipeline.notice_twins import group_twins, merge_rosters, text_key
@@ -100,13 +104,24 @@ ROSTER_CYPHER = (
 
 
 def _fetch(limit: int | None, force: bool, filename: str | None,
-           since: str | None = None) -> list[dict]:
+           since: str | None = None, *, min_ocr: int | None = None,
+           stale: bool = False) -> list[dict]:
     # A follower (page 2 of a stitched notice, pipeline/notice_pages) is never
     # extracted on its own: its text rides in the leader's stitched_markdown.
     where = ("d.markdown IS NOT NULL AND d.markdown <> '' "
              "AND d.stitched_into IS NULL")
     if not force:
-        where += " AND d.extraction_json IS NULL"
+        # ``stale``: a notice whose text or classification changed after its
+        # read (fix_missing_regions, stitch_refresh, the classification gate
+        # stamp extraction_stale_at) is read again, through the keep-better
+        # gate, instead of waiting for a person to press re-run.
+        where += (" AND (d.extraction_json IS NULL OR d.extraction_stale_at IS NOT NULL)"
+                  if stale else " AND d.extraction_json IS NULL")
+    if min_ocr is not None:
+        # The OCR gate. A page the health check scored below the bar is left
+        # for the re-OCR queue (scripts/auto_region_reingest) rather than read
+        # into entities that cannot be right; an unscored page passes.
+        where += " AND (d.ocr_health_score IS NULL OR d.ocr_health_score >= $min_ocr)"
     if filename:
         where += " AND d.filename = $fn"
     if since:
@@ -121,6 +136,8 @@ def _fetch(limit: int | None, force: bool, filename: str | None,
         params["fn"] = filename
     if since:
         params["since"] = f"{since}T00:00:00Z" if len(since) == 10 else since
+    if min_ocr is not None:
+        params["min_ocr"] = int(min_ocr)
     return run_read_query(
         f"MATCH (d:Document) WHERE {where} "
         + ROSTER_CYPHER +
@@ -129,6 +146,8 @@ def _fetch(limit: int | None, force: bool, filename: str | None,
         "       d.notice_type AS notice_type, "
         "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) "
         "AS expected_lot_count, "
+        "       d.extraction_json IS NOT NULL AS keep_better, "
+        "       d.blocks AS blocks, "
         "       roster AS roster "
         "ORDER BY d.filename"
         + (f" LIMIT {int(limit)}" if limit else ""),
@@ -303,7 +322,22 @@ def _entities(res, source: str = "") -> list[dict]:
             "attrs": attrs,
         })
     ground_missing(out, source)
-    return out
+    # Content-derived ids: identical re-reads give identical ids, and a
+    # reviewer's correction can be carried to the entity it belongs to
+    # (pipeline/extraction_ids) instead of to whatever is now at its index.
+    return assign_ids(out)
+
+
+def mark_gated(min_ocr: int) -> int:
+    """Stamp the unread pages the OCR gate holds back, so the re-OCR queue and
+    the funnel can see why they have no extraction. Returns how many."""
+    rows = run_query(
+        "MATCH (d:Document) WHERE d.markdown IS NOT NULL AND d.markdown <> '' "
+        "AND d.stitched_into IS NULL AND d.extraction_json IS NULL "
+        "AND d.ocr_health_score < $min_ocr AND d.extraction_skipped_reason IS NULL "
+        "SET d.extraction_skipped_reason = 'ocr_health' RETURN count(d) AS n",
+        {"min_ocr": int(min_ocr)})
+    return int(rows[0]["n"]) if rows else 0
 
 
 def _next_batch() -> int:
@@ -356,70 +390,32 @@ def _extract_one(d: dict, batch: int, route: bool, LX) -> tuple[bool, str | None
     """
     fn = d["filename"]
     targets = d.get("twins") or [fn]
-    if route:
-        model_id, reasoning_off = select_extract_model(d.get("notice_type"))
-    else:
-        model_id, reasoning_off = None, False
-    # How many reads this notice gets is routed like the model is — a second
-    # pass earns its price on a long lot table and nothing on a short one.
-    passes = passes_for(d.get("notice_type")) if route else None
-    effective_model = _effective_model(model_id, route)
     try:
-        res = LX.extract(d["md"], model_id=model_id, reasoning_off=reasoning_off,
-                         expected_lot_count=d.get("expected_lot_count"),
-                         roster=d.get("roster"), passes=passes)
+        ents, model_id, meta = read_document(d, route)
     except Exception as e:  # keep going; one bad doc shouldn't stop the load
-        return False, model_id, f"[fail] {fn}: {e}"
-    ents = _entities(res, d["md"])
+        return False, None, f"[fail] {fn}: {e}"
     if not ents:
         # An empty result is a failed call wearing a success's clothes. The
-        # provider answers some notices with no content at all (deepseek
-        # v4-pro-0813 did it to 15 of 68 multi-lot pages in one run, and the
-        # same page extracted cleanly on another model), and LangExtract
-        # reports that as zero extractions rather than raising. Writing it
-        # marks the page done forever: the next run skips it, because skipping
-        # is keyed on extraction_json existing, and nothing ever looks again.
-        # Leave the page untouched and let the run report it — a document that
-        # was never extracted is recoverable, one recorded as empty is not.
+        # provider answers some notices with no content at all, and writing
+        # that marks the page done forever: the next run skips it, because
+        # skipping is keyed on extraction_json existing. Leave the page
+        # untouched — a document never extracted is recoverable, one recorded
+        # as empty is not.
         return False, model_id, f"[fail] {fn}: model returned no entities"
-    # Label-free quality score (0-100, see pipeline/validators.py) — lets the
-    # review queue surface low-quality extractions first via score_min/max.
-    # The scale the score was computed on goes with it: penalties change, and a
-    # bare number cannot say which validators.py produced it.
-    #
-    # Scored from `ents`, not from res.extractions: those are the entities that
-    # get stored, spans and all, so the score describes what a reader of this
-    # document will actually find — and matches what scripts/backfill_extraction
-    # _scores.py recomputes from the same JSON.
-    score = validate_stored(ents, source_text=d["md"])["score"]
-    run_query(
-        """
-        UNWIND $fns AS fn
-        MATCH (d:Document {filename: fn})
-        SET d.extraction_json = $j,
-            d.extraction_score = $score,
-            d.extraction_score_version = $score_version,
-            d.extraction_at    = datetime(),
-            d.extraction_batch = $batch,
-            d.extraction_model = $model,
-            d.extraction_reused_from = CASE WHEN fn = $fn THEN NULL ELSE $fn END,
-            d.extraction_review_status =
-                coalesce(d.extraction_review_status, 'pending')
-        RETURN d.filename
-        """,
-        {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
-         "score": score, "score_version": SCORE_VERSION,
-         "batch": batch, "model": effective_model})
-    # A fresh read: automatic "not in the notice" marks were made against the
-    # old lots (pipeline/absence). A person's marks stay.
-    clear_auto_marks(targets)
-    # Per-lot key-entity completeness (pipeline/key_entities.py) — the review
-    # queue's "missing keys first" order. Stamped after the write so it reads
-    # the corrections this write preserved.
-    stamp_key_scores(targets)
+    effective_model = _effective_model(model_id, route)
+    try:
+        res = write_extraction(d, ents, batch, reader=meta.get("reader", "langextract"),
+                               model=effective_model, keep_better=bool(d.get("keep_better")),
+                               meta=meta)
+    except KeptExisting as e:
+        return True, model_id, f"{fn}: {e}"
     shared = "" if len(targets) == 1 else f", shared with {len(targets) - 1} copy/ies"
-    return True, model_id, (f"{fn}: {len(ents)} fields, score={score}, "
-                            f"model={effective_model}{shared}")
+    sh = meta.get("shadow") or {}
+    shadow = (f", shadow v2 score={sh.get('score')} "
+              f"{'better' if (sh.get('judge') or {}).get('v2_better') else 'not better'}"
+              if sh and not sh.get("error") else (f", shadow failed: {sh['error']}" if sh else ""))
+    return True, model_id, (f"{fn}: {res['entities']} fields, score={res['score']}, "
+                            f"reader={meta.get('reader')}, model={effective_model}{shared}{shadow}")
 
 
 def _plan_groups(docs: list[dict], *, force: bool,
@@ -452,9 +448,17 @@ def _plan_groups(docs: list[dict], *, force: bool,
 
 def run(limit: int | None, force: bool, filename: str | None,
         workers: int = DEFAULT_WORKERS, max_seconds: int | None = None,
-        since: str | None = None) -> int:
-    from pipeline import langextract_examples as LX
-    docs = _fetch(limit, force, filename, since)
+        since: str | None = None, min_ocr: int | None = None,
+        stale: bool = False) -> int:
+    LX = None   # the reader is chosen per document by pipeline/extract_entry
+    if min_ocr is not None:
+        gated = mark_gated(min_ocr)
+        if gated:
+            print(f"OCR gate: {gated} page(s) below health {min_ocr} left for re-OCR")
+    docs = _fetch(limit, force, filename, since, min_ocr=min_ocr, stale=stale)
+    for d in docs:
+        if force or d.get("keep_better"):
+            d["keep_better"] = True
     print(f"to extract: {len(docs)} document(s)")
     if not docs:
         print("done — wrote 0, failed 0")
@@ -549,14 +553,26 @@ def main() -> int:
                     help="only notices backing an auction starting on/after "
                          "this date (YYYY-MM-DD) — the future half of the "
                          "backlog, which is what the site serves today")
+    ap.add_argument("--min-ocr", type=int, default=config.EXTRACT_MIN_OCR_HEALTH,
+                    help="OCR gate: skip pages whose ocr_health_score is below this "
+                         "(default pipeline/config EXTRACT_MIN_OCR_HEALTH; -1 disables)")
+    ap.add_argument("--stale", action="store_true",
+                    help="also re-read pages stamped extraction_stale_at, through the "
+                         "keep-better gate")
+    ap.add_argument("--reader", choices=("langextract", "v2", "shadow"), default=None,
+                    help="override EXTRACT_READER for this run")
     ap.add_argument("--max-seconds", type=int, default=None,
                     help="stop starting new documents after this many seconds "
                          "(in-flight ones finish). For a scheduled runner: set "
                          "it below the gap between firings so two runs never "
                          "overlap. Untouched pages stay pending.")
     args = ap.parse_args()
+    if args.reader:
+        os.environ["EXTRACT_READER"] = args.reader
     return run(args.limit, args.force, args.filename, args.workers,
-               args.max_seconds, args.since)
+               args.max_seconds, args.since,
+               min_ocr=None if args.min_ocr is not None and args.min_ocr < 0 else args.min_ocr,
+               stale=args.stale)
 
 
 if __name__ == "__main__":

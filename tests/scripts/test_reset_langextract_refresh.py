@@ -19,7 +19,10 @@ class _Capture:
         self.params = None
 
     def __call__(self, cypher, params=None, **kw):
-        self.cypher, self.params = cypher, params
+        # the document write is the one that sets extraction_json; later calls
+        # (the run node, events) must not hide it
+        if self.cypher is None or "d.extraction_json = $j" in cypher:
+            self.cypher, self.params = cypher, params
         return self.rows
 
 
@@ -143,11 +146,16 @@ def test_refresh_carries_the_portal_roster(monkeypatch):
 
 def _write_cypher(monkeypatch, entities=None) -> str:
     cap = _Capture(rows=[{"d.filename": "x.jpg"}])
-    monkeypatch.setattr(R, "run_query", cap)
+    import pipeline.extraction_store as ES
+    monkeypatch.setattr(ES, "run_query", cap)
+    monkeypatch.setattr(ES, "clear_auto_marks", lambda fns: None)
+    monkeypatch.setattr(ES, "stamp_key_scores", lambda fns: None)
+    monkeypatch.setattr(ES, "validate_stored", lambda *a, **k: {"score": 80})
     monkeypatch.setattr(R, "_entities",
                         lambda res, source="": [{"id": "e1"}]
                         if entities is None else entities)
     monkeypatch.setattr(R, "validate_stored", lambda *a, **k: {"score": 80})
+    monkeypatch.setattr(ES, "previous", lambda fns: {})
 
     class _Res:
         extractions = []

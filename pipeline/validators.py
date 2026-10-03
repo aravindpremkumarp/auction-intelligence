@@ -280,6 +280,12 @@ def validate(extractions, source_text: str = "") -> dict:
             prop_lots.add(li)
             if a.get("property_type"):
                 prop_type[li] = a["property_type"]
+            elif a.get("property_type_state") == "not_stated":
+                # The reader (pipeline/reader) read the lot and found no type
+                # stated — an honest absence, recorded as such, not a miss.
+                # The key checklist still shows the cell as missing until a
+                # person marks it absent; the score does not charge it twice.
+                prop_lots.discard(li)
             if a.get("possession_type"):
                 possession[li] = a["possession_type"]
         elif c == "borrower":

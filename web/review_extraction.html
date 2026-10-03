@@ -535,6 +535,13 @@ function render(){
   // full_description) renders as a table; ✎ edit swaps in the <textarea>
   // (not <input>) so long values wrap and autosize.
   let f="";
+  // Corrections a re-read could not place (pipeline/extraction_ids): the old
+  // entity's class and text are shown so the reviewer can find the new one
+  // and re-enter the value there. Nothing here was applied anywhere.
+  if(d.orphaned&&d.orphaned.length){
+    f+=`<div class="fld orphans"><div class="c">⚠ ${d.orphaned.length} correction(s) from before the last re-read need re-placing</div>`+
+      d.orphaned.map(o=>{const of=o.orphaned_from||{};return `<div class="snip" style="background:#fef3c7">${esc(of.cls||o.key)}${of.lot_index?(" · lot "+of.lot_index):""}: <i>${esc(snippet(of.text||""))}</i>${o.value!=null?` → <b>${esc(String(o.value))}</b>`:""}${o.by?` <span class=corr>by ${esc(o.by)}</span>`:""}</div>`;}).join("")+`</div>`;
+  }
   d.fields.forEach(fl=>{
     const ung=fl.grounded?"":" <span class=ung>UNGROUNDED</span>";
     // 'stored' = the extraction's own offsets still land on this text, which
@@ -546,6 +553,19 @@ function render(){
                 lost:["ANCHOR LOST","this text is no longer in the markdown, so the span was dropped rather than left pointing at the wrong passage"]};
     const a=ANCH[fl.anchor];
     const anch=a?` <span class=anch title="${a[1]}">${a[0]}</span>`:"";
+    // Evidence (pipeline/reader): a word, never a number. EXPLICIT is the
+    // normal case and shows nothing; the page and the source (table cell,
+    // header, tail) say where it was read.
+    const EV={VERIFIED:["✓ verified","two reads agreed on this value","#dcfce7"],
+              INHERITED:["inherited","stated once for the whole notice and copied to this lot","#e0e7ff"],
+              FUZZY_GROUNDED:["fuzzy","found by similarity only — the OCR changed these characters","#fef3c7"],
+              CONTESTED:["contested","two reads disagreed, or a cross-field rule failed — check this first","#fee2e2"],
+              ILLEGIBLE:["illegible","the figure is garbled in the OCR; no number was taken from it","#fee2e2"],
+              NOT_STATED:["not stated","the lot's text does not state this","#f1f5f9"]};
+    const ev=EV[fl.evidence];
+    const evb=(ev?` <span class=anch style="background:${ev[2]};color:#0f172a" title="${ev[1]}${fl.rule?" ("+esc(fl.rule)+")":""}${fl.inherited_from?" from "+esc(fl.inherited_from):""}">${ev[0]}</span>`:"")
+      +(fl.page!=null?` <span class=anch title="page of the notice this was read from">p.${fl.page}</span>`:"")
+      +(fl.source&&fl.source!=="prose"?` <span class=anch title="where in the notice: a table cell (row:column), the header or the tail">${esc(fl.source)}</span>`:"");
     const attrs=Object.entries(fl.attrs).map(([k,v])=>`<b>${esc(k)}</b>: ${esc(String(v))}`).join(" · ");
     const raw=fl.corrected_value!=null?fl.corrected_value:fl.text;
     // String(): fids ride through the onclick attribute as strings, so the set is
@@ -554,7 +574,7 @@ function render(){
     // A reviewer-added entity: the model never emitted it, so it carries a
     // delete button instead of a correction trail.
     const addd=fl.added?` <span class=addd title="added by a reviewer, not extracted by the model">ADDED</span>`:"";
-    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${addd}${ung}${anch}${
+    f+=`<div class="fld" id="fld_${fl.id}" data-fid="${fl.id}"><div class="c">${fl.cls}${fl.lot_index?(" · lot "+fl.lot_index):""}${addd}${ung}${anch}${evb}${
         rich?`<button class="modebtn" onclick="toggleFieldMode('${fl.id}')" title="${editing?"show the value as a rendered table":"edit the raw value"}">${editing?"⊞ table":"✎ edit"}</button>`:""}</div>
       <div class="snip" style="background:${COLORS[fl.cls]||'#f1f5f9'}">${esc(snippet(fl.text))}</div>
       ${attrs?`<div class="attrs">${attrs}</div>`:""}

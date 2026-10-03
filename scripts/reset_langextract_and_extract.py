@@ -81,6 +81,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from api.neo4j_client import run_query, run_read_query
+from pipeline import extraction_store as ES
+from pipeline.extraction_store import KeptExisting  # noqa: F401 (re-exported)
 from pipeline.extract_routing import (
     passes_for,
     select_extract_model,
@@ -188,8 +190,6 @@ def _lot_count(ents: list[dict]) -> int:
                 if (e.get("attrs") or {}).get("lot_index") not in (None, "")})
 
 
-class KeptExisting(Exception):
-    """The new read is not better than the stored one, which stays."""
 
 
 def _when(ts) -> datetime | None:
@@ -403,67 +403,13 @@ def read_notice(d: dict, route: bool) -> tuple[list[dict], str | None]:
 def write_extraction(d: dict, ents: list[dict], batch: int,
                      keep_better: bool = False,
                      keep_auto_marks: bool = False) -> None:
-    """Store ``ents`` as ``d``'s extraction (and its twins'), or raise
-    ``KeptExisting`` when ``keep_better`` and the stored read is at least as
-    good. Split from ``_extract_one`` so a read made elsewhere — an eval run's
-    entities — is saved through the same gate and the same write.
-
-    A fresh read may number its lots differently, so it drops the automatic
-    "not in the notice" marks made against the old one (pipeline/absence);
-    ``keep_auto_marks`` is for a save that only added facts to the stored read
-    (scripts/fill_gaps), whose lots are the same."""
-    fn = d["filename"]
-    targets = d.get("twins") or [fn]
-    if keep_better:
-        stored = _stored(fn)
-        if stored["entities"] and not stored["text_changed"]:
-            chosen, how, gains, losses = best(stored["entities"], ents, d["md"],
-                                              d.get("expected_lot_count"))
-            if chosen is None:
-                why = ("lost " + ", ".join(losses[:5])) if losses else "no gain"
-                raise KeptExisting(f"not better ({why}) — keeping the "
-                                   f"existing one")
-            ents = chosen
-            label = "better" if how == "new" else "merged with the stored read"
-            print(f"    {fn}: {label} — {', '.join(gains[:6])}"
-                  + (" …" if len(gains) > 6 else ""), flush=True)
-    # Scored from the entities that get stored (spans regrounded), so the
-    # number describes the document a reader opens — see _extract_one.
-    score = validate_stored(ents, source_text=d["md"])["score"]
-    run_query(
-        """
-        UNWIND $fns AS name
-        MATCH (d:Document {filename: name})
-        SET d.extraction_json = $j,
-            d.extraction_score = $score,
-            d.extraction_score_version = $score_version,
-            d.extraction_at    = datetime(),
-            d.extraction_batch = $batch,
-            // A verification is a statement about entities a person actually
-            // read. These entities are new, so the old verdict cannot cover
-            // them: carrying `verified` forward (what
-            // `coalesce(status,'pending')` used to do here) leaves a human's
-            // name on rows nobody has seen, and the review queue reports a
-            // notice as done when it is not. Back to 'pending' — the queue is
-            // longer, and it is true.
-            d.extraction_review_status = 'pending',
-            d.extraction_reused_from =
-                CASE WHEN name = $fn THEN NULL ELSE $fn END,
-            // Fresh entities now reflect the current markdown, so the staleness
-            // marker fix_missing_regions left behind is cleared here — the flag
-            // must not outlive the condition it describes.
-            d.extraction_stale_at = NULL
-        REMOVE d.extraction_verified_by, d.extraction_verified_at
-        RETURN d.filename
-        """,
-        {"fn": fn, "fns": targets, "j": json.dumps(ents, ensure_ascii=False),
-         "score": score, "score_version": SCORE_VERSION, "batch": batch})
-    if not keep_auto_marks:
-        from pipeline.absence import clear_auto_marks
-        clear_auto_marks(targets)
-    # New entities, new key-entity checklist (pipeline/key_entities.py).
-    from pipeline.key_entities import stamp_key_scores
-    stamp_key_scores(targets)
+    """Store ``ents`` through the one writer every reader shares
+    (pipeline/extraction_store.write_extraction): previous read kept,
+    reviewer corrections carried, keep-better gate when asked. Raises
+    ``KeptExisting`` when the stored read is at least as good."""
+    ES.write_extraction(d, ents, batch, reader=d.get("reader") or "langextract",
+                        model=d.get("model"), keep_better=keep_better,
+                        keep_auto_marks=keep_auto_marks, meta=d.get("meta"))
 
 
 def _extract_one(d: dict, batch: int, route: bool, keep_better: bool = False):

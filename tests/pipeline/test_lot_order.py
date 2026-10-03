@@ -68,6 +68,17 @@ def test_lots_sharing_one_description_are_refused():
     assert O.plan(ents, md)[0] == {}
 
 
+def test_lots_sharing_one_description_are_ordered_by_their_price_lines():
+    md = _notice(["Flats in Block A", "Flat 1 Reserve Rs 10,00,000",
+                  "Flat 2 Reserve Rs 12,00,000"])
+    ents = [_e("full_description", "Flats in Block A", md, "1"),
+            _e("full_description", "Flats in Block A", md, "2"),
+            _e("auction_terms", "Flat 1 Reserve Rs 10,00,000", md, "2"),
+            _e("auction_terms", "Flat 2 Reserve Rs 12,00,000", md, "1")]
+    mapping, why = O.plan(ents, md)
+    assert mapping == {"2": "1", "1": "2"} and why.startswith("reading order")
+
+
 def test_apply_moves_marks_and_added_entities_with_their_lot():
     md = _notice(["Property at Survey A", "Property at Survey B"])
     ents = [_e("full_description", "Property at Survey A", md, "2"),
@@ -81,3 +92,19 @@ def test_apply_moves_marks_and_added_entities_with_their_lot():
     assert set(new_corr) == {"absent:1:extent", "unfound:2:reserve_price", "add:x", "f7"}
     assert new_corr["add:x"]["attrs"]["lot_index"] == "1"
     assert ents[0]["attrs"]["lot_index"] == "2"        # inputs untouched
+
+
+def test_store_renumbers_on_save_unless_a_person_matched_a_lot(monkeypatch):
+    import pipeline.extraction_store as ES
+    md = _notice([f"Property at Survey {c}" for c in "AB"])
+    ents = [_e("full_description", "Property at Survey A", md, "2"),
+            _e("full_description", "Property at Survey B", md, "1")]
+
+    monkeypatch.setattr(ES, "run_read_query", lambda *a, **k: [{"n": 0}])
+    out, why = ES.in_notice_order("f.jpg", ents, md)
+    assert [e["attrs"]["lot_index"] for e in out] == ["1", "2"] and why
+    assert all(e.get("id") for e in out)
+
+    monkeypatch.setattr(ES, "run_read_query", lambda *a, **k: [{"n": 1}])
+    out, why = ES.in_notice_order("f.jpg", ents, md)
+    assert out is ents and why is None
