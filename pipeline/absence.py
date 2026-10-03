@@ -8,7 +8,8 @@ hand is the bottleneck this module removes. Three rules, per lot and key:
 1. **No clue in the text** (``no_clue``). The lot's own text has no word that
    could carry the fact — no "possession", "symbolic" or "physical" for
    possession; no unit of area for extent. Nothing to read, so it is marked
-   absent without a model call.
+   absent without a model call. Never for a location: a place needs no
+   keyword to be named.
 2. **Read twice, found nothing.** The text has clues, but a lean read and then
    a read on the stronger model both came back without the fact. Marked absent.
 3. **A fact every notice states** (reserve price, auction date, the property
@@ -55,9 +56,9 @@ CLUES = {
         r"land|plot|flat|apartment|house|building|villa|shop|office|site|"
         r"residential|commercial|industrial|factory|godown|warehouse|premises|"
         r"bungalow|tenement|structure|survey|\bs\.?\s*no", re.I),
-    "location": re.compile(
-        r"village|taluk|tehsil|district|nagar|street|road|town|city|panchayat|"
-        r"ward|registration|situated|lying|located|\bat\b", re.I),
+    # No "location": a place is stated by its name alone ("Alagapuram Pudur,
+    # Salem"), and no word list can tell a village name from any other word.
+    # Every location gap gets a read.
 }
 
 RULE_NO_CLUE = "no_clue"

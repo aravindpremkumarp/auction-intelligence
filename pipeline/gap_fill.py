@@ -53,12 +53,6 @@ def _lot(e: dict) -> str:
 #: even though it names a place. The SRO rides along when asked, not alone.
 LOCATION_NEEDS = ("village", "taluk")
 
-#: The word the lot's text needs before a missing part is worth a read.
-_PART_CLUES = {
-    "village": re.compile(r"\bvill(?:age)?\b|\bgrama", re.I),
-    "taluk": re.compile(r"\btaluk|\btaluq|\btk\b|\btehsil", re.I),
-}
-
 
 def gaps(ents: list[dict]) -> dict[str, list[str]]:
     """lot_index -> the key facts the extraction lacks for that lot. Only lots
@@ -427,11 +421,13 @@ def plan(md: str, stored: list[dict], skip: set[tuple[str, str]] = frozenset(),
 
     ``skip`` holds (lot, key) already marked — by a person or an earlier run —
     and is left out. A gap whose lot text has no word that could state it
-    (pipeline/absence.no_clue) goes to ``marks`` as absent with no read.
+    (pipeline/absence.no_clue) goes to ``marks`` as absent with no read. A
+    location gap — whole, or a missing village or taluk — always gets a read:
+    a village is named without the word "village" ("Alagapuram Pudur, Salem
+    Taluk"), so no keyword can rule one out.
     """
     from pipeline.absence import RULE_NO_CLUE, no_clue
     n_lots = max(len({_lot(e) for e in stored}), 1)
-    parts = location_parts(stored)
     todo: dict[str, list[str]] = {}
     marks: dict[tuple[str, str], str] = {}
     for lot, keys in gaps(stored).items():
@@ -441,24 +437,11 @@ def plan(md: str, stored: list[dict], skip: set[tuple[str, str]] = frozenset(),
         cut = excerpt(md, stored, lot, n_lots, expected_lot_count)
         text = cut[0] if cut else mask_possession_boilerplate(md)
         for k in keys:
-            if no_clue(text, k) or (k == "location" and _no_part_clue(
-                    text, stored, lot, parts)):
+            if no_clue(text, k):
                 marks[(lot, k)] = RULE_NO_CLUE
             else:
                 todo.setdefault(lot, []).append(k)
     return todo, marks
-
-
-def _no_part_clue(text: str, stored: list[dict], lot: str,
-                  parts: dict[str, set[str]]) -> bool:
-    """A location that names a place but lacks its village or taluk is worth a
-    read only when the lot's text has the word for a missing part — most
-    urban flats name a street and a city and no village at all."""
-    has_location = any(e.get("cls") == "location" and _lot(e) == lot for e in stored)
-    if not has_location:
-        return False
-    clean = re.sub(r"<[^>]+>", " ", text or "")
-    return not any(_PART_CLUES[k].search(clean) for k in missing_parts(parts, lot))
 
 
 def fill(md: str, stored: list[dict], read: Callable[..., list[dict]],

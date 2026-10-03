@@ -68,8 +68,9 @@ from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    load_taluk_neighbours, neighbour_taluk_place, property_pin, resolve_place,
-    taluk_hint_place, village_pieces_place,
+    load_taluk_neighbours, load_towns, neighbour_taluk_place, place_level,
+    property_pin, resolve_place, taluk_hint_place, town_place,
+    village_pieces_place,
 )
 from pipeline.property_taxonomy import (
     AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
@@ -307,6 +308,7 @@ def decided_spellings(reload: bool = False
 _SRO_TALUKS: dict[str, str] | None = None
 _PIN_TALUKS: dict[str, str] | None = None
 _TALUK_NEIGHBOURS: dict[str, tuple[str, ...]] | None = None
+_TOWNS: dict[str, dict] | None = None
 
 
 def sro_taluks() -> dict[str, str]:
@@ -328,6 +330,14 @@ def taluk_neighbours() -> dict[str, tuple[str, ...]]:
     if _TALUK_NEIGHBOURS is None:
         _TALUK_NEIGHBOURS = load_taluk_neighbours()
     return _TALUK_NEIGHBOURS
+
+
+def towns() -> dict[str, dict]:
+    """LGD's town register (scripts/lgd_towns_to_json)."""
+    global _TOWNS
+    if _TOWNS is None:
+        _TOWNS = load_towns()
+    return _TOWNS
 
 
 def lot_pin(rec: dict) -> str | None:
@@ -410,6 +420,14 @@ def lot_place(rec: dict) -> dict:
         pin=lot_pin(rec), pin_taluks=pin_taluks())
     hinted = district_sound_place(gaz, hinted, loc.get("village"))
     hinted = neighbour_taluk_place(gaz, hinted, loc.get("village"), taluk_neighbours())
+    # Last, the town the lot's own text calls a town ("Villupuram Town",
+    # "Ponneri Municipality"): a property inside a town owes no village, and a
+    # town inside one taluk gives the taluk the notice left out.
+    props = rec.get("props") or {}
+    hinted = town_place(gaz, hinted, loc.get("village"), towns(),
+                        loc.get("village"), loc.get("taluk"), loc.get("city"),
+                        loc.get("area"), props.get("full_description"),
+                        props.get("address"))
     district, taluk, village, parts, status, source, district_source = (
         hinted["district"], hinted["taluk"], hinted["village"],
         hinted["village_parts"], hinted["village_status"],
@@ -438,6 +456,12 @@ def lot_place(rec: dict) -> dict:
         # district the notice stated outright; see resolve_place.
         "district_source": district_source,
         "conflict": r["conflict"],
+        # The town the lot lies in, when its text calls one a town, and how
+        # finely it is placed: village / town / taluk / district.
+        "town": hinted.get("town"),
+        "town_type": hinted.get("town_type"),
+        "taluk_source": hinted.get("taluk_source"),
+        "level": place_level(hinted),
     }
 
 
@@ -1063,7 +1087,11 @@ SET l.place_status = row.status,
     l.village_parts = CASE WHEN size(coalesce(row.village_parts, [])) > 0
                            THEN row.village_parts END,
     l.taluk = row.taluk,
-    l.district = row.district
+    l.district = row.district,
+    l.place_town = row.town,
+    l.place_town_type = row.town_type,
+    l.place_taluk_source = row.taluk_source,
+    l.place_level = row.level
 
 // MATCH, never MERGE: every name here came out of the gazetteer, so a miss is
 // a bug worth leaving visible. MERGE would invent a duplicate place node with
