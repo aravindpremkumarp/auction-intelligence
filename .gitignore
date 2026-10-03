@@ -88,3 +88,6 @@ marketing/outputs/*/rendered/
 
 # Eval run reports (evals/run_agent3.py --json)
 runs/
+
+# gstack office-hours spec-review scratch (evidence stays local)
+docs/designs/*.review.*/
