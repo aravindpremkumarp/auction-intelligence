@@ -55,6 +55,46 @@ def test_multi_lot_splits_by_lot_index():
     assert len(lots[1]["identifiers"]) == 1
 
 
+# ── shared sale schedule: every lot inherits it ──────────────────────────────
+
+def test_unindexed_sale_dates_reach_every_lot():
+    """One "DATE & TIME OF E-AUCTION" under two lots used to land on lot 1
+    only, so lot 2 got no :Auction and vanished from listings."""
+    _, lots = build([
+        ent("property", "A", lot_index="1"),
+        ent("property", "B", lot_index="2"),
+        ent("auction_terms", "Rs.10,00,000", lot_index="1", reserve_price_num="1000000"),
+        ent("auction_terms", "10.07.2026 02:00 PM",
+            auction_start_dt="2026-07-10T14:00", inspection_dt="2026-07-03"),
+    ])
+    by = {rec["lot_index"]: rec["auction"] for rec in lots}
+    assert by["1"] == {"reserve_price_num": 1000000, "auction_start_dt": "2026-07-10T14:00",
+                       "inspection_dt": "2026-07-03"}
+    assert by["2"] == {"auction_start_dt": "2026-07-10T14:00", "inspection_dt": "2026-07-03"}
+
+
+def test_lot_own_dates_beat_the_shared_schedule():
+    _, lots = build([
+        ent("auction_terms", "shared", auction_start_dt="2026-07-10T14:00"),
+        ent("auction_terms", "own", lot_index="2", auction_start_dt="2026-08-01T11:00"),
+    ])
+    by = {rec["lot_index"]: rec["auction"] for rec in lots}
+    assert by["2"]["auction_start_dt"] == "2026-08-01T11:00"
+    assert by["1"]["auction_start_dt"] == "2026-07-10T14:00"
+
+
+def test_unindexed_price_is_not_copied_to_other_lots():
+    _, lots = build([
+        ent("property", "B", lot_index="2"),
+        ent("auction_terms", "Rs.5,00,000", reserve_price_num="500000",
+            auction_start_dt="2026-07-10T14:00"),
+    ])
+    by = {rec["lot_index"]: rec["auction"] for rec in lots}
+    assert by["1"]["reserve_price_num"] == 500000   # unchanged: lot 1 keeps it
+    assert "reserve_price_num" not in by["2"]
+    assert by["2"]["auction_start_dt"] == "2026-07-10T14:00"
+
+
 # ── possession: silence is a fact ────────────────────────────────────────────
 
 def test_possession_recorded_when_stated():
