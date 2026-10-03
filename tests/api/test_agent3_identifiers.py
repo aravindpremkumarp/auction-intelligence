@@ -85,6 +85,8 @@ def test_the_parcel_branch_is_left_alone():
     """`(:Parcel)<-[:IS_PARCEL]-(:AuctionProperty)` is already listing-level —
     it groups the same land across notices, which is the point of walking it,
     and it never fans out across a notice's siblings."""
+    from api.places import in_service_area
     for cypher in (I._RESOLVE_CYPHER, I._DETAIL_CYPHER):
         parcel_branch = cypher.split("HAS_IDENTIFIER")[1]
-        assert "IS_LOT" not in parcel_branch.split("RETURN")[0]
+        # the service-area predicate filters the listing, not its lot scope
+        assert "IS_LOT" not in parcel_branch.split("RETURN")[0].replace(in_service_area("a"), "")

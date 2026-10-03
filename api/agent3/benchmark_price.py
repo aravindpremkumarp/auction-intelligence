@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from api.agent3.common import LOT_OF_LISTING, ToolInputError, tool
 from api.neo4j_client import run_read_query
+from api.places import in_service_area
 
 #: A property is not smaller than this. The 1-sqft floor used elsewhere lets
 #: parse errors through into a DIVISION, where they explode: extents of 1.2
@@ -72,10 +73,13 @@ RETURN a.auction_id AS auction_id, a.reserve_price_num AS reserve_price,
 """
 
 #: One ring. `$match` is substituted from _RINGS, never from user input.
+#: Out-of-area listings (Kerala, Madhya Pradesh...) are not comparables for a
+#: Tamil Nadu price. Braces doubled: the ring is a str.format template.
 _RING = """
 MATCH (a:AuctionProperty)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l:Lot)
 WITH a, count(DISTINCT l) AS lots
 WHERE lots = 1 AND a.reserve_price_num IS NOT NULL AND a.auction_id <> $id
+  AND """ + in_service_area("a").replace("{", "{{").replace("}", "}}") + """
 {match}
 CALL (a) {{
   MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(l2:Lot)

@@ -68,8 +68,8 @@ from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    load_taluk_neighbours, load_towns, neighbour_taluk_place, place_level,
-    property_pin, resolve_place, taluk_hint_place, town_place,
+    load_taluk_neighbours, load_towns, neighbour_taluk_place, out_of_area,
+    place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
 from pipeline.property_taxonomy import (
@@ -456,6 +456,14 @@ def lot_place(rec: dict) -> dict:
         # district the notice stated outright; see resolve_place.
         "district_source": district_source,
         "conflict": r["conflict"],
+        # The state and district as the notice wrote them. An out-of-state
+        # lot resolves to nulls, so these are the only record of where it is.
+        "state_raw": (loc.get("state") or "").strip() or None,
+        "district_raw": (loc.get("district") or "").strip() or None,
+        # Outside Tamil Nadu and not Puducherry/Karaikal: kept, but hidden
+        # from what buyers browse (api.places.in_service_area).
+        "out_of_area": out_of_area(status, district=loc.get("district"),
+                                   state=loc.get("state")),
         # The town the lot lies in, when its text calls one a town, and how
         # finely it is placed: village / town / taluk / district.
         "town": hinted.get("town"),
@@ -616,6 +624,14 @@ _PROV_FIELDS = {
 }
 
 
+#: auction_terms a notice states once for all its lots (the sale schedule).
+#: Inherited by every lot that lacks them; money fields never are.
+_SHARED_AUCTION_FIELDS = frozenset({
+    "auction_start_dt", "auction_end_dt", "application_deadline_dt", "inspection_dt",
+    "auto_extension_minutes",
+})
+
+
 def lot_provenance(entities: list[dict]) -> dict[str, dict]:
     """{lot_index: {field: {entity_id, page, block_id, source, evidence, method,
     inherited_from, ...}}} — the receipt for every promoted value, carried
@@ -657,6 +673,7 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
     entities = renumber_window_lots(entities)
     notice: dict = {"facts": [], "contacts": [], "loan_accounts": []}
     lots: dict[str, dict] = {}
+    shared_auction: dict = {}
 
     def lot(li: str) -> dict:
         return lots.setdefault(li, {
@@ -842,6 +859,10 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
 
         elif cls == "auction_terms":
             a = lot(li)["auction"]
+            # no lot_index = the notice's shared schedule ("DATE & TIME OF
+            # E-AUCTION" printed once under every lot); its dates are kept
+            # aside so every lot can inherit them below, not just lot 1
+            shared = shared_auction if not attrs.get("lot_index") else None
             for src, dst, conv in (
                 ("reserve_price_num", "reserve_price_num", parse_money),
                 ("emd_num", "emd_num", parse_money),
@@ -856,6 +877,8 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
                 v = conv(attrs.get(src))
                 if v is not None and dst not in a:
                     a[dst] = v
+                if v is not None and shared is not None and dst in _SHARED_AUCTION_FIELDS:
+                    shared.setdefault(dst, v)
 
         elif cls == "outstanding":
             acct = _s(attrs.get("loan_account_no"))
@@ -871,6 +894,14 @@ def build_lots(entities: list[dict], filename: str) -> tuple[dict, list[dict]]:
             if key and val:
                 target = lot(li)["facts"] if attrs.get("lot_index") else notice["facts"]
                 target.append({"key": key, "value": val})
+
+    # A lot's own terms win; the shared schedule only fills what it lacks, so
+    # a multi-lot notice whose dates are printed once still yields a sale
+    # event (an :Auction) for every lot. Money is never inherited: an
+    # unindexed price is one lot's price, not every lot's.
+    for rec in lots.values():
+        for k, v in shared_auction.items():
+            rec["auction"].setdefault(k, v)
 
     # finalize each lot: description, headline extent, derived road numbers
     out = []
@@ -1088,6 +1119,9 @@ SET l.place_status = row.status,
                            THEN row.village_parts END,
     l.taluk = row.taluk,
     l.district = row.district,
+    l.place_state_raw = row.state_raw,
+    l.place_district_raw = row.district_raw,
+    l.out_of_area = row.out_of_area,
     l.place_town = row.town,
     l.place_town_type = row.town_type,
     l.place_taluk_source = row.taluk_source,

@@ -415,6 +415,30 @@ def outside_tamil_nadu(gaz: Gazetteer, *, district: str | None,
     return False
 
 
+#: Outside Tamil Nadu, but next door and still shown to buyers: the Puducherry
+#: and Karaikal regions of the union territory. Mahe (inside Kerala) and Yanam
+#: (inside Andhra Pradesh) belong to it too, but sit nowhere near.
+SHOWN_NEIGHBOURS = {"puducherry", "pondicherry", "pudhucherry", "karaikal"}
+_FAR_UT_REGIONS = {"mahe", "yanam"}
+
+
+def out_of_area(status: str | None, *, district: str | None,
+                state: str | None) -> bool:
+    """Is this property outside the area buyers browse?
+
+    True only for an `outside-tamil-nadu` verdict that does not name Puducherry
+    or Karaikal. The listing is still kept — hiding it is a read-side choice,
+    so a wrong verdict costs a hidden row, never a lost one.
+    """
+    if status != OUTSIDE_TAMIL_NADU:
+        return False
+    d = " ".join(str(district or "").strip().lower().split())
+    s = " ".join(str(state or "").strip().lower().split())
+    if d in _FAR_UT_REGIONS:
+        return True
+    return not (d in SHOWN_NEIGHBOURS or s in SHOWN_NEIGHBOURS)
+
+
 def normalize_place(value: str) -> str:
     """Fold a place name to a comparable key.
 

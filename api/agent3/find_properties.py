@@ -41,7 +41,7 @@ from api.agent3.common import (
 # `monkeypatch.setattr(FP, "resolve_identifier", ...)`.
 from api.agent3.identifiers import resolve_identifier
 from api.neo4j_client import run_read_query
-from api.places import suppress_portal_city
+from api.places import in_service_area, suppress_portal_city
 # The taxonomy is imported, never re-implemented: a second copy of "which
 # bucket is this" in Cypher is exactly how the conflict flag and the lot
 # matcher each grew a rival that disagreed with the writer.
@@ -135,8 +135,10 @@ class _Query:
         parts.extend(f"MATCH {j}" for j in self.joins)
         # One copy per auction: a listing bridged to a better-ranked portal's
         # copy is not a row, a count or a facet — it is that row's `also_on`.
-        # Standing, not a fragment, so `relax` can never drop it.
-        parts.append("WHERE " + "\n  AND ".join([canonical_listing("a"), *self.where]))
+        # Standing, not a fragment, so `relax` can never drop it. Same for the
+        # service area: an out-of-area listing is never a buyer's result.
+        parts.append("WHERE " + "\n  AND ".join([canonical_listing("a"), in_service_area("a"),
+                                                *self.where]))
         return "\n".join(parts)
 
     def base_without(self, label: str) -> tuple[str, dict]:

@@ -326,7 +326,9 @@ def test_is_reauction_true_filters_on_prior_listing_exists(monkeypatch) -> None:
     cypher, params = calls[0]
     assert "EXISTS { MATCH (a)-[:SAME_PROPERTY_AS]->(p:AuctionProperty)" in cypher
     assert "p.auction_start_dt < a.auction_start_dt" in cypher
-    assert "NOT EXISTS" not in cypher
+    # the standing service-area predicate carries its own NOT EXISTS
+    from api.places import in_service_area
+    assert "NOT EXISTS" not in cypher.replace(in_service_area("a"), "")
     assert "is_reauction" not in params  # structural clause, no param
 
 
