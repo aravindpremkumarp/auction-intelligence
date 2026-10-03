@@ -335,6 +335,7 @@ EXTRACTION_FAILURES: dict[str, dict] = {
                       "cypher": f"coalesce(d.extraction_lot_count > {_EXPECTED_LOTS}, false)"},
     "rerun":         {"codes": (), "cypher": _STALE_CYPHER},
     "description":   {"codes": ("missing_full_description", "full_description_incomplete")},
+    "wrong-lot":     {"codes": ("detail_wrong_lot",)},
     "reserve":       {"codes": ("missing_reserve_price", "lot_missing_reserve")},
     "borrower":      {"codes": ("missing_borrower", "lot_missing_borrower")},
     "location":      {"codes": ("missing_location", "lot_missing_location")},

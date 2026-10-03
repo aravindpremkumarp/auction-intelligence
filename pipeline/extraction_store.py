@@ -12,7 +12,9 @@ overwrites a stored read it:
    (pipeline/extraction_ids.carry_corrections), orphaning what matches
    nothing rather than letting it land on the wrong entity;
 3. with ``keep_better``, lets the stored read win when the new one is not
-   better (pipeline/keep_better.best), raising :class:`KeptExisting`.
+   better (pipeline/keep_better.best), raising :class:`KeptExisting`;
+4. stretches each lot's full_description over the details it stopped short
+   of (pipeline/widen_descriptions) — code only, recorded as ``widened_from``.
 
 Then it stamps what the reader reported: the reader and prompt hash, the
 schema version, the evidence counts the review queue filters on
@@ -33,6 +35,7 @@ from pipeline.extraction_ids import carry_corrections
 from pipeline.keep_better import best
 from pipeline.key_entities import absent_key, stamp_key_scores, unfound_key
 from pipeline.validators import SCORE_VERSION, validate_stored
+from pipeline.widen_descriptions import widen
 
 RULE_READER_NOT_STATED = "reader_not_stated"
 
@@ -229,6 +232,11 @@ def write_extraction(d: dict, ents: list[dict], batch: int, *, reader: str = "la
     ents, reordered = in_notice_order(fn, ents, md, d.get("expected_lot_count"))
     if reordered:
         print(f"    {fn}: lots renumbered to the notice's order ({reordered})", flush=True)
+    ents, widened = widen(ents, md)
+    grown = sorted(li for li, r in widened.items() if r["to"] != r["from"])
+    if grown:
+        print(f"    {fn}: description widened over missed details on lot(s) "
+              f"{', '.join(grown)}", flush=True)
     score = validate_stored(ents, source_text=md)["score"]
     rows, carried = carry_rows(targets, ents)
     if carried.get("orphaned"):

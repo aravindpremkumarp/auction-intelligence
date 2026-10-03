@@ -115,6 +115,16 @@ def collect() -> dict:
                         THEN 1 ELSE 0 END) AS placed
     """)
     lots_total, placed = int(r.get("total") or 0), int(r.get("placed") or 0)
+    # A lot inside a town owes no village (place_resolution.town_place), so the
+    # village share alone reads every town property as a failure. The finest
+    # place each unplaced lot does have:
+    finer = one("""
+        MATCH (l:Lot) WHERE NOT EXISTS { (l)-[:IN_REVENUE_VILLAGE]->() }
+        RETURN sum(CASE WHEN l.place_town IS NOT NULL THEN 1 ELSE 0 END) AS town,
+               sum(CASE WHEN l.place_town IS NULL AND l.taluk IS NOT NULL
+                        THEN 1 ELSE 0 END) AS taluk
+    """)
+    in_town, taluk_only = int(finer.get("town") or 0), int(finer.get("taluk") or 0)
     # Rows vs distinct strings is the whole automation argument: a reviewer
     # judges strings, and the queue shows rows.
     blocked = one("""
@@ -139,6 +149,12 @@ def collect() -> dict:
         "lots_on_the_gazetteer": metric(
             placed, lots_total,
             note="gates parcel matching: it only fires for placed lots"),
+        "lots_in_a_town": metric(
+            in_town, lots_total,
+            note="no village owed: located by town, ward and block (LGD towns)"),
+        "lots_located_to_a_taluk_or_finer": metric(
+            placed + in_town + taluk_only, lots_total,
+            note="village, town or taluk known — enough for an area search"),
         "unresolved_place_rows": metric(rows_blocked),
         "rows_blocked_by_their_taluk": metric(int(taluks.get("rows") or 0)),
         "distinct_taluk_strings_blocking_them": metric(

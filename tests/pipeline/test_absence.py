@@ -36,6 +36,9 @@ def test_no_clue_only_for_optional_facts():
     # a fact every notice states is never "no clue" — it goes to a read
     assert not A.no_clue("nothing here", "reserve_price")
     assert not A.no_clue("nothing here", "full_description")
+    # a place is named without a keyword, so a location always gets a read
+    assert not A.no_clue("T.S. No.52/15, Alagapuram Pudur, Salem", "location")
+    assert not A.no_clue("nothing here", "location")
 
 
 def test_plan_marks_gaps_with_no_clue_and_skips_marked_ones():

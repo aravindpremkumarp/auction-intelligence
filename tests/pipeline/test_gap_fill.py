@@ -243,10 +243,10 @@ def test_a_location_without_its_village_or_taluk_is_a_gap():
     assert cell["status"] == "filled"
 
 
-def test_a_missing_part_needs_its_word_in_the_lot_text():
-    from pipeline.absence import RULE_NO_CLUE
+def test_a_missing_part_is_read_even_without_its_word_in_the_lot_text():
     todo, marks = G.plan(LOC_MD, _loc_stored(village="Adhanur"))
     assert todo == {"1": ["location"]} and marks == {}
+    # "Chennai" names the taluk without the word "taluk": still worth a read
     flat = LOC_MD.replace("Kundrathur Taluk", "Chennai")
     stored = [dict(e, text=e["text"].replace("Kundrathur Taluk", "Chennai"))
               for e in _loc_stored(village="Adhanur")]
@@ -254,7 +254,7 @@ def test_a_missing_part_needs_its_word_in_the_lot_text():
         e["start"] = flat.index(e["text"])
         e["end"] = e["start"] + len(e["text"])
     todo, marks = G.plan(flat, stored)
-    assert todo == {} and marks == {("1", "location"): RULE_NO_CLUE}
+    assert todo == {"1": ["location"]} and marks == {}
 
 
 def test_fill_adds_the_parts_written_in_the_span_and_nothing_made_up():

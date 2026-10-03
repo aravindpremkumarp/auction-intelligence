@@ -139,3 +139,22 @@ def test_property_type_needs_no_has_run_guard(monkeypatch):
     assert (t["value"], t["total"]) == (996, 2859)
     assert "not_yet_run" not in t
     assert card["sections"]["agreement"]["type_conflicts_critical"]["value"] == 832
+
+
+def test_a_lot_in_a_town_counts_as_located_not_as_a_failure(monkeypatch):
+    """A town property owes no village, so the village share alone reads it as
+    unplaced; the town and taluk-or-finer counts say how it is located."""
+    def fake_one(cypher, params=None):
+        if "AS placed" in cypher:
+            return {"total": 1000, "placed": 650}
+        if "AS town" in cypher:
+            return {"town": 40, "taluk": 110}
+        return {}
+
+    monkeypatch.setattr(SC, "one", fake_one)
+    monkeypatch.setattr(SC, "q", lambda *a, **k: [])
+    places = SC.collect()["sections"]["places"]
+    assert places["lots_on_the_gazetteer"]["value"] == 650
+    assert places["lots_in_a_town"] == {"value": 40, "total": 1000, "pct": 4.0,
+                                        "note": places["lots_in_a_town"]["note"]}
+    assert places["lots_located_to_a_taluk_or_finer"]["value"] == 800
