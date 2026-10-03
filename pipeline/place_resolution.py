@@ -1522,3 +1522,163 @@ def neighbour_taluk_place(gaz: "Gazetteer", res: dict, village: str | None,
             "village_parts": tried["village_parts"],
             "village_status": tried["village_status"],
             "village_source": "neighbour-taluk"}
+
+
+# ── Towns: the urban register ────────────────────────────────────────────────
+# The village register is rural. A property inside a municipality, a town
+# panchayat or a corporation is located by town, ward and block ("New T.S.No.
+# 28/13B, Block No. 37, Ward No.A, Kaivalliar Street, Villupuram"), so it finds
+# no village and owes none. LGD's urban local-body exports list every town and
+# the taluk each of its wards lies in (scripts/lgd_towns_to_json), which places
+# such a property to its town and — for a town inside one taluk — its taluk.
+
+#: ``{lgd_code: {"name", "type", "district", "taluks", "wards"}}`` from LGD.
+TOWNS = Path(__file__).resolve().parent / "lookups" / "lgd_towns.json"
+TOWN_SOURCE = "lgd-town"
+#: Words that call the name before them a town. Needed only when no district
+#: is known to scope the town by: "Arani" is a town in two districts, and
+#: "Kottur" is a village in many.
+_TOWN_MARKER = frozenset({"town", "municipality", "municipal", "corporation",
+                          "tp", "township"})
+#: Longest town name, in words ("Thiruvenkadam Pudur" is two).
+_TOWN_WORDS = 3
+_WORD = re.compile(r"[A-Za-z]+")
+
+
+def load_towns(path: Path = TOWNS) -> dict[str, dict]:
+    """The town register, or {} before it exists."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+
+
+_TOWN_INDEX: dict[int, dict[str, list[dict]]] = {}
+
+
+def _town_index(towns: dict[str, dict]) -> dict[str, list[dict]]:
+    """``{folded name: [town, ...]}`` — a list, since a name can be two towns."""
+    index = _TOWN_INDEX.get(id(towns))
+    if index is None:
+        index = defaultdict(list)
+        for town in towns.values():
+            key = normalize_place(town.get("name") or "")
+            # Four letters at least: shorter keys meet ordinary words.
+            if len(key) >= 4:
+                index[key].append(town)
+        _TOWN_INDEX.clear()
+        _TOWN_INDEX[id(towns)] = index = dict(index)
+    return index
+
+
+def _called_a_town(words: list[str], at: int) -> bool:
+    """``words[at]`` calls the name before it a town — but not "Erode Town and
+    Country Planning", the planning authority every layout approval cites."""
+    if at >= len(words) or words[at].lower() not in _TOWN_MARKER:
+        return False
+    after = " ".join(w.lower() for w in words[at + 1:at + 3])
+    return not after.startswith(("and country", "planning", "and planning"))
+
+
+def towns_named(towns: dict[str, dict], *texts: str | None,
+                marked: bool = False) -> list[dict]:
+    """Every town whose name stands as whole words in ``texts``. With
+    ``marked``, only a name followed by a word calling it a town ("Attur
+    Town", "Ponneri Municipality")."""
+    index = _town_index(towns)
+    found: dict[int, dict] = {}
+    for text in texts:
+        words = _WORD.findall(str(text or ""))
+        for i in range(len(words)):
+            for n in range(1, _TOWN_WORDS + 1):
+                if i + n > len(words):
+                    break
+                # normalize_place drops "village", "taluk" and the like, so
+                # "Natham Village" would fold to the town "Natham".
+                if not normalize_place(words[i + n - 1]):
+                    break
+                hits = index.get(normalize_place(" ".join(words[i:i + n])))
+                if not hits:
+                    continue
+                if marked and not _called_a_town(words, i + n):
+                    continue
+                for town in hits:
+                    found[id(town)] = town
+    return list(found.values())
+
+
+def _town_on_gazetteer(gaz: "Gazetteer", town: dict) -> tuple[str | None, set[str]]:
+    """The town's district and taluks, as the gazetteer names them. A taluk the
+    gazetteer cannot place in the town's own district is dropped, not guessed."""
+    district = gaz.district(town["district"]) if town.get("district") else None
+    taluks = set()
+    for name in town.get("taluks") or ():
+        hit = gaz.taluk(name)
+        if hit and (district is None or hit[1] == district):
+            taluks.add(hit[0])
+            district = district or hit[1]
+    return district, taluks
+
+
+def town_place(gaz: "Gazetteer", res: dict, village: str | None,
+               towns: dict[str, dict] | None, *texts: str | None) -> dict:
+    """``res`` with the town its property's own text names (:data:`TOWNS`),
+    when the village did not place.
+
+    Always labels: ``town`` / ``town_type``. Places only what the town settles:
+    a town inside one taluk gives the taluk when ``res`` has none (``taluk_source``
+    ``lgd-town``), and the notice's village is then looked for inside that taluk
+    by :func:`resolve_place`'s own rules (``village_source`` ``lgd-town``).
+
+    Refuses rather than guesses: the name must be called a town in the text
+    ("Attur Town", "Ponneri Municipality"); a town outside the known district
+    or taluk is not this property's; two towns named is two answers.
+
+    The town word is required even inside a known district. Most town names
+    are also a taluk's or a district's, and a notice names those for the
+    registration office and the district whatever the property's own place:
+    on placed listings with the taluk hidden, matching the bare name read
+    "Kancheepuram District" as the town and chose the wrong taluk 405 times in
+    890. "Kottur" is also a village in many taluks."""
+    if (not towns or res.get("village") or res.get("village_parts")
+            or res.get("village_status") == OUTSIDE_TAMIL_NADU):
+        return res
+    district = res.get("district")
+    hits = towns_named(towns, *texts, marked=True)
+    answers: dict[tuple, tuple] = {}
+    for town in hits:
+        t_district, t_taluks = _town_on_gazetteer(gaz, town)
+        if not t_district or (district and t_district != district):
+            continue
+        if res.get("taluk") and t_taluks and res["taluk"] not in t_taluks:
+            continue
+        answers.setdefault((town["name"], t_district), (town, t_district, t_taluks))
+    if len(answers) != 1:
+        return res
+    (town, t_district, t_taluks), = answers.values()
+    out = {**res, "town": town["name"], "town_type": town.get("type")}
+    if res.get("taluk") or len(t_taluks) != 1:
+        return out
+    taluk, = t_taluks
+    out.update(taluk=taluk, district=t_district, taluk_source=TOWN_SOURCE)
+    if not district:
+        out["district_source"] = TOWN_SOURCE
+    if village and res.get("village_status") in ("no-parent-taluk", "unmatched"):
+        tried = resolve_place(gaz, district=t_district, taluk=taluk, village=village)
+        if tried["taluk"] == taluk and (tried["village"] or tried["village_parts"]):
+            out.update(village=tried["village"], village_parts=tried["village_parts"],
+                       village_status=tried["village_status"],
+                       village_source=TOWN_SOURCE)
+    return out
+
+
+def place_level(res: dict) -> str | None:
+    """How finely ``res`` locates its property: ``village``, ``town``,
+    ``taluk``, ``district``, or None. A village kept in parts is still a
+    village: the property is in one of them."""
+    if res.get("village") or res.get("village_parts"):
+        return "village"
+    for level in ("town", "taluk", "district"):
+        if res.get(level):
+            return level
+    return None

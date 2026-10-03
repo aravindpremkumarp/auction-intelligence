@@ -54,8 +54,9 @@ from collections import Counter, defaultdict
 from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    load_taluk_neighbours, neighbour_taluk_place, property_pin, resolve_place,
-    taluk_hint_place, village_pieces_place,
+    load_taluk_neighbours, load_towns, neighbour_taluk_place, place_level,
+    property_pin, resolve_place, taluk_hint_place, town_place,
+    village_pieces_place,
 )
 from pipeline.resolution_review import (
     district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
@@ -202,6 +203,10 @@ def write_back(rows: list[dict]) -> None:
                 p.place_notice_conflict  = row.notice_conflict,
                 p.place_portal_conflict  = row.portal_conflict,
                 p.place_portal_conflict_kind = row.portal_conflict_kind,
+                p.place_town             = row.town,
+                p.place_town_type        = row.town_type,
+                p.place_taluk_source     = row.taluk_source,
+                p.place_level            = row.level,
                 p.place_resolved_at      = datetime()
         """, {"rows": rows[i:i + BATCH]})
         # Edges are attached with MATCH, never MERGE, on the gazetteer side.
@@ -305,6 +310,7 @@ def run(*, dry_run: bool = False) -> dict:
     sro_taluks = load_sro_taluks()
     pin_taluks = load_pin_taluks()
     neighbours = load_taluk_neighbours()
+    towns = load_towns()
     settled = settled_conflicts(decisions)
     print(f"{len(props)} propert(ies); gazetteer has "
           f"{len(gaz.districts)} districts, {len(gaz.taluks)} taluks, "
@@ -357,8 +363,14 @@ def run(*, dry_run: bool = False) -> dict:
                                pin_taluks=pin_taluks)
         res = district_sound_place(gaz, res, village)
         res = neighbour_taluk_place(gaz, res, village, neighbours)
+        # Last, the town the property's own text calls a town: a property
+        # inside a town owes no village, and a town inside one taluk gives the
+        # taluk the notice left out (place_resolution.town_place).
+        res = town_place(gaz, res, village, towns, village, taluk, p.get("description"))
         if res["village_source"] != was:
             stats[f"placed by rule {res['village_source']} ({res['village_status']})"] += 1
+        if res.get("taluk_source"):
+            stats[f"taluk from {res['taluk_source']}"] += 1
 
         # The portal is only ever a witness: its disagreement is recorded, and
         # never allowed to change the answer.
@@ -385,6 +397,8 @@ def run(*, dry_run: bool = False) -> dict:
 
         if res["village"]:
             stats["village resolved"] += 1
+        elif res.get("town"):
+            stats[f"town only ({res['town_type']})"] += 1
         elif res["taluk"]:
             stats[f"taluk only ({res['village_status']})"] += 1
         elif res["district"]:
@@ -426,6 +440,10 @@ def run(*, dry_run: bool = False) -> dict:
             "notice_conflict": res["conflict"],
             "portal_conflict": portal_conflict,
             "portal_conflict_kind": portal_kind,
+            "town": res.get("town"),
+            "town_type": res.get("town_type"),
+            "taluk_source": res.get("taluk_source"),
+            "level": place_level(res),
             # The two states a human still owes an answer on. Everything else
             # — resolved, absent, urban, out of state — is settled ground.
             "attention": open_conflict or res["village_status"] == "unmatched",

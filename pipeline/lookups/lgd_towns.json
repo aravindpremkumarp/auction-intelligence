@@ -1,0 +1,5998 @@
+{
+ "252262": {
+  "name": "Gummidipoondi",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Gummidipoondi"
+  ],
+  "wards": 15
+ },
+ "252263": {
+  "name": "Arani",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Ponneri"
+  ],
+  "wards": 15
+ },
+ "252264": {
+  "name": "Ponneri",
+  "type": "Municipality",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Ponneri"
+  ],
+  "wards": 27
+ },
+ "252265": {
+  "name": "Minjur",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Ponneri"
+  ],
+  "wards": 18
+ },
+ "252268": {
+  "name": "Uthukkottai",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Uthukkottai"
+  ],
+  "wards": 15
+ },
+ "252269": {
+  "name": "Tiruttani",
+  "type": "Municipality",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Tiruttani"
+  ],
+  "wards": 21
+ },
+ "252270": {
+  "name": "Pallipattu",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Pallipattu"
+  ],
+  "wards": 15
+ },
+ "252271": {
+  "name": "Pothatturpettai",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Pallipattu"
+  ],
+  "wards": 18
+ },
+ "252273": {
+  "name": "Tiruvallur",
+  "type": "Municipality",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Thiruvallur"
+  ],
+  "wards": 27
+ },
+ "252275": {
+  "name": "Thirunindravur",
+  "type": "Municipality",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Avadi",
+   "Poonamallee"
+  ],
+  "wards": 27
+ },
+ "252276": {
+  "name": "Avadi",
+  "type": "Municipal Corporation",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Avadi",
+   "Poonamallee"
+  ],
+  "wards": 48
+ },
+ "252277": {
+  "name": "Thiruverkadu",
+  "type": "Municipality",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Poonamallee"
+  ],
+  "wards": 18
+ },
+ "252278": {
+  "name": "Poonamallee",
+  "type": "Municipality",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Poonamallee"
+  ],
+  "wards": 21
+ },
+ "252279": {
+  "name": "Thirumazhisai",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Poonamallee"
+  ],
+  "wards": 15
+ },
+ "252283": {
+  "name": "Naravarikuppam",
+  "type": "Town Panchayat",
+  "district": "Thiruvallur",
+  "taluks": [
+   "Gummidipoondi",
+   "Ponneri"
+  ],
+  "wards": 18
+ },
+ "252294": {
+  "name": "Greater Chennai Corporation",
+  "type": "Municipal Corporation",
+  "district": "Chennai",
+  "taluks": [
+   "Alandur",
+   "Ambattur",
+   "Aminjikarai",
+   "Ayanavaram",
+   "Egmore",
+   "Guindy",
+   "Kolathur",
+   "Maduravoyal",
+   "Mambalam",
+   "Mathavaram",
+   "Mylapore",
+   "Perambur",
+   "Purasawalkam",
+   "Sholinganallur",
+   "Tiruvottiyur",
+   "Tondiarpet",
+   "Velachery"
+  ],
+  "wards": 200
+ },
+ "252295": {
+  "name": "Mangadu",
+  "type": "Municipality",
+  "district": "Kancheepuram",
+  "taluks": [
+   "Kundrathur"
+  ],
+  "wards": 18
+ },
+ "252298": {
+  "name": "Kundrathur",
+  "type": "Municipality",
+  "district": "Kancheepuram",
+  "taluks": [
+   "Kundrathur",
+   "Sriperumbudur"
+  ],
+  "wards": 18
+ },
+ "252299": {
+  "name": "Sriperumbudur",
+  "type": "Municipality",
+  "district": "Kancheepuram",
+  "taluks": [
+   "Sriperumbudur"
+  ],
+  "wards": 15
+ },
+ "252319": {
+  "name": "Tambaram",
+  "type": "Municipal Corporation",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Pallavaram",
+   "Tambaram"
+  ],
+  "wards": 71
+ },
+ "252329": {
+  "name": "Nandivaram - Guduvancheri",
+  "type": "Municipality",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Chengalpattu",
+   "Vandalur"
+  ],
+  "wards": 18
+ },
+ "252330": {
+  "name": "Maraimalainagar",
+  "type": "Municipality",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Chengalpattu"
+  ],
+  "wards": 21
+ },
+ "252332": {
+  "name": "Thiruporur",
+  "type": "Town Panchayat",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Chengalpattu",
+   "Tiruporur"
+  ],
+  "wards": 15
+ },
+ "252333": {
+  "name": "Chengalpattu",
+  "type": "Municipality",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Chengalpattu"
+  ],
+  "wards": 33
+ },
+ "252336": {
+  "name": "Kancheepuram",
+  "type": "Municipal Corporation",
+  "district": "Kancheepuram",
+  "taluks": [
+   "Kancheepuram"
+  ],
+  "wards": 51
+ },
+ "252340": {
+  "name": "Ayyampettai",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Papanasam"
+  ],
+  "wards": 15
+ },
+ "252341": {
+  "name": "Walajabad",
+  "type": "Town Panchayat",
+  "district": "Kancheepuram",
+  "taluks": [
+   "Walajabad"
+  ],
+  "wards": 15
+ },
+ "252342": {
+  "name": "Uthiramerur",
+  "type": "Town Panchayat",
+  "district": "Kancheepuram",
+  "taluks": [
+   "Uthiramerur"
+  ],
+  "wards": 18
+ },
+ "252343": {
+  "name": "Tirukalukundram",
+  "type": "Town Panchayat",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Tirukalukundram"
+  ],
+  "wards": 18
+ },
+ "252344": {
+  "name": "Mamallapuram",
+  "type": "Municipality",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Tirukalukundram"
+  ],
+  "wards": 15
+ },
+ "252346": {
+  "name": "Karunguzhi",
+  "type": "Town Panchayat",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Maduranthakam"
+  ],
+  "wards": 15
+ },
+ "252347": {
+  "name": "Madurantakam",
+  "type": "Municipality",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Maduranthakam"
+  ],
+  "wards": 24
+ },
+ "252348": {
+  "name": "Acharapakkam",
+  "type": "Town Panchayat",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Maduranthakam"
+  ],
+  "wards": 15
+ },
+ "252349": {
+  "name": "Edaikazhinadu",
+  "type": "Town Panchayat",
+  "district": "Chengalpattu",
+  "taluks": [
+   "Cheyyur"
+  ],
+  "wards": 21
+ },
+ "252350": {
+  "name": "Pernambut",
+  "type": "Municipality",
+  "district": "Vellore",
+  "taluks": [
+   "Gudiyatham",
+   "Pernambut"
+  ],
+  "wards": 21
+ },
+ "252351": {
+  "name": "Gudiyatham",
+  "type": "Municipality",
+  "district": "Vellore",
+  "taluks": [
+   "Gudiyatham"
+  ],
+  "wards": 36
+ },
+ "252359": {
+  "name": "Thiruvalam",
+  "type": "Town Panchayat",
+  "district": "Vellore",
+  "taluks": [
+   "Katpadi"
+  ],
+  "wards": 15
+ },
+ "252360": {
+  "name": "Sholingur",
+  "type": "Municipality",
+  "district": "Ranipet",
+  "taluks": [
+   "Sholinghur"
+  ],
+  "wards": 27
+ },
+ "252361": {
+  "name": "Ammoor",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Wallajah"
+  ],
+  "wards": 15
+ },
+ "252363": {
+  "name": "Narasingapuram",
+  "type": "Municipality",
+  "district": "Salem",
+  "taluks": [
+   "Attur"
+  ],
+  "wards": 18
+ },
+ "252364": {
+  "name": "Ranipet",
+  "type": "Municipality",
+  "district": "Ranipet",
+  "taluks": [
+   "Wallajah"
+  ],
+  "wards": 30
+ },
+ "252365": {
+  "name": "Walajapet",
+  "type": "Municipality",
+  "district": "Ranipet",
+  "taluks": [
+   "Wallajah"
+  ],
+  "wards": 24
+ },
+ "252366": {
+  "name": "Melvisharam",
+  "type": "Municipality",
+  "district": "Ranipet",
+  "taluks": [
+   "Wallajah"
+  ],
+  "wards": 21
+ },
+ "252367": {
+  "name": "Arakkonam",
+  "type": "Municipality",
+  "district": "Ranipet",
+  "taluks": [
+   "Arakonam"
+  ],
+  "wards": 36
+ },
+ "252369": {
+  "name": "Nemili",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Nemili"
+  ],
+  "wards": 15
+ },
+ "252370": {
+  "name": "Thakkolam",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Arakonam"
+  ],
+  "wards": 15
+ },
+ "252371": {
+  "name": "Kaveripakkam",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Nemili"
+  ],
+  "wards": 15
+ },
+ "252372": {
+  "name": "Panapakkam",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Nemili"
+  ],
+  "wards": 15
+ },
+ "252373": {
+  "name": "Arcot",
+  "type": "Municipality",
+  "district": "Ranipet",
+  "taluks": [
+   "Arcot"
+  ],
+  "wards": 30
+ },
+ "252374": {
+  "name": "Vilapakkam",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Arcot"
+  ],
+  "wards": 15
+ },
+ "252375": {
+  "name": "Timiri",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Arcot"
+  ],
+  "wards": 15
+ },
+ "252376": {
+  "name": "Kalavai",
+  "type": "Town Panchayat",
+  "district": "Ranipet",
+  "taluks": [
+   "Arcot",
+   "Kalavai"
+  ],
+  "wards": 15
+ },
+ "252377": {
+  "name": "Pallikonda",
+  "type": "Town Panchayat",
+  "district": "Vellore",
+  "taluks": [
+   "Anaicut"
+  ],
+  "wards": 18
+ },
+ "252381": {
+  "name": "Vellore",
+  "type": "Municipal Corporation",
+  "district": "Vellore",
+  "taluks": [
+   "Katpadi",
+   "Vellore"
+  ],
+  "wards": 60
+ },
+ "252388": {
+  "name": "Pennathur",
+  "type": "Town Panchayat",
+  "district": "Vellore",
+  "taluks": [
+   "Vellore"
+  ],
+  "wards": 15
+ },
+ "252389": {
+  "name": "Odugathur",
+  "type": "Town Panchayat",
+  "district": "Vellore",
+  "taluks": [
+   "Anaicut"
+  ],
+  "wards": 15
+ },
+ "252391": {
+  "name": "Ambur",
+  "type": "Municipality",
+  "district": "Tirupathur",
+  "taluks": [
+   "Ambur"
+  ],
+  "wards": 36
+ },
+ "252392": {
+  "name": "Uthayendram",
+  "type": "Town Panchayat",
+  "district": "Tirupathur",
+  "taluks": [
+   "Vaniyambadi"
+  ],
+  "wards": 15
+ },
+ "252394": {
+  "name": "Vaniyambadi",
+  "type": "Municipality",
+  "district": "Tirupathur",
+  "taluks": [
+   "Vaniyambadi"
+  ],
+  "wards": 36
+ },
+ "252395": {
+  "name": "Alangayam",
+  "type": "Town Panchayat",
+  "district": "Tirupathur",
+  "taluks": [
+   "Vaniyambadi"
+  ],
+  "wards": 15
+ },
+ "252396": {
+  "name": "Natrampalli",
+  "type": "Town Panchayat",
+  "district": "Tirupathur",
+  "taluks": [
+   "Natrampalli",
+   "Tirupathur"
+  ],
+  "wards": 15
+ },
+ "252397": {
+  "name": "Jolarpet",
+  "type": "Municipality",
+  "district": "Tirupathur",
+  "taluks": [
+   "Tirupathur"
+  ],
+  "wards": 18
+ },
+ "252398": {
+  "name": "Thirupathur",
+  "type": "Municipality",
+  "district": "Tirupathur",
+  "taluks": [
+   "Tirupathur"
+  ],
+  "wards": 36
+ },
+ "252399": {
+  "name": "Hosur",
+  "type": "Municipal Corporation",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Hosur"
+  ],
+  "wards": 45
+ },
+ "252401": {
+  "name": "Bargur",
+  "type": "Town Panchayat",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Bargur",
+   "Krishnagiri"
+  ],
+  "wards": 15
+ },
+ "252402": {
+  "name": "Krishnagiri",
+  "type": "Municipality",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Krishnagiri"
+  ],
+  "wards": 33
+ },
+ "252404": {
+  "name": "Kaveripattinam",
+  "type": "Town Panchayat",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Krishnagiri"
+  ],
+  "wards": 15
+ },
+ "252405": {
+  "name": "Kelamangalam",
+  "type": "Town Panchayat",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Denkanikottai"
+  ],
+  "wards": 15
+ },
+ "252406": {
+  "name": "Denkanikottai",
+  "type": "Town Panchayat",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Denkanikottai"
+  ],
+  "wards": 18
+ },
+ "252407": {
+  "name": "Marandahalli",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Palakkodu"
+  ],
+  "wards": 15
+ },
+ "252408": {
+  "name": "Karimangalam",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Karimangalam"
+  ],
+  "wards": 15
+ },
+ "252409": {
+  "name": "Palakkodu",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Palakkodu"
+  ],
+  "wards": 18
+ },
+ "252410": {
+  "name": "Nagojanahalli",
+  "type": "Town Panchayat",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Pochampalli"
+  ],
+  "wards": 15
+ },
+ "252411": {
+  "name": "Uthangarai",
+  "type": "Town Panchayat",
+  "district": "Krishnagiri",
+  "taluks": [
+   "Uthangarai"
+  ],
+  "wards": 15
+ },
+ "252412": {
+  "name": "Kambainallur",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Harur",
+   "Karimangalam"
+  ],
+  "wards": 15
+ },
+ "252413": {
+  "name": "Harur",
+  "type": "Municipality",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Harur"
+  ],
+  "wards": 18
+ },
+ "252414": {
+  "name": "Kadathur",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Pappireddipatti"
+  ],
+  "wards": 15
+ },
+ "252415": {
+  "name": "B.Mallapuram",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Pappireddipatti"
+  ],
+  "wards": 15
+ },
+ "252416": {
+  "name": "Pappireddipatti",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Pappireddipatti"
+  ],
+  "wards": 15
+ },
+ "252417": {
+  "name": "Dharmapuri",
+  "type": "Municipality",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Dharmapuri"
+  ],
+  "wards": 33
+ },
+ "252419": {
+  "name": "Pennagaram",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Pennagaram"
+  ],
+  "wards": 18
+ },
+ "252420": {
+  "name": "Kannamangalam",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Arani"
+  ],
+  "wards": 15
+ },
+ "252422": {
+  "name": "Arani",
+  "type": "Municipality",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Arani"
+  ],
+  "wards": 33
+ },
+ "252424": {
+  "name": "Thiruvathipuram",
+  "type": "Municipality",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Cheyyar"
+  ],
+  "wards": 27
+ },
+ "252425": {
+  "name": "Peranamallur",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Vandavasi"
+  ],
+  "wards": 12
+ },
+ "252426": {
+  "name": "Vandavasi",
+  "type": "Municipality",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Vandavasi"
+  ],
+  "wards": 24
+ },
+ "252427": {
+  "name": "Desur",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Vandavasi"
+  ],
+  "wards": 12
+ },
+ "252428": {
+  "name": "Kalambur",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Polur"
+  ],
+  "wards": 15
+ },
+ "252429": {
+  "name": "Polur",
+  "type": "Municipality",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Polur"
+  ],
+  "wards": 18
+ },
+ "252430": {
+  "name": "Chetpet",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Chetpet",
+   "Polur"
+  ],
+  "wards": 18
+ },
+ "252431": {
+  "name": "Pudupalayam",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Chengam"
+  ],
+  "wards": 12
+ },
+ "252432": {
+  "name": "Chengam",
+  "type": "Municipality",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Chengam"
+  ],
+  "wards": 18
+ },
+ "252433": {
+  "name": "Kilpennathur",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Kilpennathur",
+   "Tiruvannamalai"
+  ],
+  "wards": 15
+ },
+ "252434": {
+  "name": "Thiruvannamalai",
+  "type": "Municipality",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Tiruvannamalai"
+  ],
+  "wards": 39
+ },
+ "252435": {
+  "name": "Vettavalam",
+  "type": "Town Panchayat",
+  "district": "Tiruvannamalai",
+  "taluks": [
+   "Kilpennathur",
+   "Tiruvannamalai"
+  ],
+  "wards": 15
+ },
+ "252436": {
+  "name": "Gingee",
+  "type": "Town Panchayat",
+  "district": "Viluppuram",
+  "taluks": [
+   "Gingee"
+  ],
+  "wards": 18
+ },
+ "252437": {
+  "name": "Ananthapuram",
+  "type": "Town Panchayat",
+  "district": "Viluppuram",
+  "taluks": [
+   "Gingee"
+  ],
+  "wards": 15
+ },
+ "252438": {
+  "name": "Tindivanam",
+  "type": "Municipality",
+  "district": "Viluppuram",
+  "taluks": [
+   "Tindivanam"
+  ],
+  "wards": 33
+ },
+ "252439": {
+  "name": "Marakkanam",
+  "type": "Town Panchayat",
+  "district": "Viluppuram",
+  "taluks": [
+   "Marakanam"
+  ],
+  "wards": 18
+ },
+ "252440": {
+  "name": "Kottakuppam",
+  "type": "Municipality",
+  "district": "Viluppuram",
+  "taluks": [
+   "Vanur"
+  ],
+  "wards": 18
+ },
+ "252441": {
+  "name": "Vikravandi",
+  "type": "Town Panchayat",
+  "district": "Viluppuram",
+  "taluks": [
+   "Vikravandi"
+  ],
+  "wards": 15
+ },
+ "252442": {
+  "name": "Villupuram",
+  "type": "Municipality",
+  "district": "Viluppuram",
+  "taluks": [
+   "Viluppuram"
+  ],
+  "wards": 42
+ },
+ "252443": {
+  "name": "Valavanur",
+  "type": "Town Panchayat",
+  "district": "Viluppuram",
+  "taluks": [
+   "Viluppuram"
+  ],
+  "wards": 15
+ },
+ "252444": {
+  "name": "Manalurpet",
+  "type": "Town Panchayat",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Tirukkoyilur"
+  ],
+  "wards": 15
+ },
+ "252445": {
+  "name": "Arakandanallur",
+  "type": "Town Panchayat",
+  "district": "Viluppuram",
+  "taluks": [
+   "Kandachipuram"
+  ],
+  "wards": 12
+ },
+ "252446": {
+  "name": "Tirukkoyilur",
+  "type": "Municipality",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Tirukkoyilur"
+  ],
+  "wards": 27
+ },
+ "252447": {
+  "name": "Thiruvennainallur",
+  "type": "Town Panchayat",
+  "district": "Viluppuram",
+  "taluks": [
+   "Thiruvennainallur"
+  ],
+  "wards": 15
+ },
+ "252448": {
+  "name": "Sankarapuram",
+  "type": "Town Panchayat",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Sankarapuram"
+  ],
+  "wards": 15
+ },
+ "252449": {
+  "name": "Vadakkanandal",
+  "type": "Town Panchayat",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Chinnasalem"
+  ],
+  "wards": 18
+ },
+ "252450": {
+  "name": "Thiagadurgam",
+  "type": "Town Panchayat",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Kallakkurichi"
+  ],
+  "wards": 15
+ },
+ "252451": {
+  "name": "Kallakurichi",
+  "type": "Municipality",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Kallakkurichi"
+  ],
+  "wards": 21
+ },
+ "252452": {
+  "name": "Chinnasalem",
+  "type": "Town Panchayat",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Chinnasalem"
+  ],
+  "wards": 18
+ },
+ "252453": {
+  "name": "Ulundurpettai",
+  "type": "Municipality",
+  "district": "Kallakurichi",
+  "taluks": [
+   "Ulundurpettai"
+  ],
+  "wards": 24
+ },
+ "252454": {
+  "name": "Mecheri",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 18
+ },
+ "252455": {
+  "name": "Kolathur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 15
+ },
+ "252456": {
+  "name": "Veerakkalpudur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 12
+ },
+ "252457": {
+  "name": "Mettur",
+  "type": "Municipality",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 30
+ },
+ "252458": {
+  "name": "P.N.Patti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 15
+ },
+ "252459": {
+  "name": "Nangavalli",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 15
+ },
+ "252460": {
+  "name": "Vanavasi",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 15
+ },
+ "252462": {
+  "name": "Jalakandapuram",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Mettur"
+  ],
+  "wards": 15
+ },
+ "252463": {
+  "name": "Kadayampatti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Kadayampatti"
+  ],
+  "wards": 18
+ },
+ "252464": {
+  "name": "Omalur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Omalur"
+  ],
+  "wards": 15
+ },
+ "252465": {
+  "name": "Karuppur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Omalur"
+  ],
+  "wards": 18
+ },
+ "252466": {
+  "name": "Tharamangalam",
+  "type": "Municipality",
+  "district": "Salem",
+  "taluks": [
+   "Omalur"
+  ],
+  "wards": 27
+ },
+ "252467": {
+  "name": "Poolampatti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Edappadi"
+  ],
+  "wards": 15
+ },
+ "252468": {
+  "name": "Edappadi",
+  "type": "Municipality",
+  "district": "Salem",
+  "taluks": [
+   "Edappadi"
+  ],
+  "wards": 30
+ },
+ "252469": {
+  "name": "Konganapuram",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Edappadi",
+   "Sankari"
+  ],
+  "wards": 15
+ },
+ "252470": {
+  "name": "Edanganasalai",
+  "type": "Municipality",
+  "district": "Salem",
+  "taluks": [
+   "Sankari"
+  ],
+  "wards": 27
+ },
+ "252471": {
+  "name": "Arasiramani",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Sankari"
+  ],
+  "wards": 15
+ },
+ "252472": {
+  "name": "Thevur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Sankari"
+  ],
+  "wards": 15
+ },
+ "252473": {
+  "name": "Sankari",
+  "type": "Municipality",
+  "district": "Salem",
+  "taluks": [
+   "Sankari"
+  ],
+  "wards": 15
+ },
+ "252474": {
+  "name": "Salem",
+  "type": "Municipal Corporation",
+  "district": "Salem",
+  "taluks": [
+   "Salem",
+   "Salem South",
+   "Salem West"
+  ],
+  "wards": 60
+ },
+ "252475": {
+  "name": "Kannankurichi",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Salem"
+  ],
+  "wards": 18
+ },
+ "252481": {
+  "name": "Panaimarathupatti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Salem"
+  ],
+  "wards": 15
+ },
+ "252483": {
+  "name": "Attayampatti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Salem South"
+  ],
+  "wards": 15
+ },
+ "252484": {
+  "name": "Papparapatti",
+  "type": "Town Panchayat",
+  "district": "Dharmapuri",
+  "taluks": [
+   "Pennagaram"
+  ],
+  "wards": 15
+ },
+ "252485": {
+  "name": "Mallur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Salem"
+  ],
+  "wards": 15
+ },
+ "252486": {
+  "name": "Ayothiapattinam",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Vazhapadi"
+  ],
+  "wards": 15
+ },
+ "252487": {
+  "name": "Belur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Vazhapadi"
+  ],
+  "wards": 15
+ },
+ "252488": {
+  "name": "Vazhapadi",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Vazhapadi"
+  ],
+  "wards": 15
+ },
+ "252489": {
+  "name": "Ethapur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Attur",
+   "Pethanaickanpalayam"
+  ],
+  "wards": 18
+ },
+ "252490": {
+  "name": "Pethanaickenpalayam",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Attur",
+   "Pethanaickanpalayam"
+  ],
+  "wards": 15
+ },
+ "252491": {
+  "name": "Attur",
+  "type": "Municipality",
+  "district": "Salem",
+  "taluks": [
+   "Attur"
+  ],
+  "wards": 33
+ },
+ "252493": {
+  "name": "Keeripatti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Attur"
+  ],
+  "wards": 15
+ },
+ "252494": {
+  "name": "Veeraganur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Gangavalli",
+   "Thalaivasal"
+  ],
+  "wards": 15
+ },
+ "252495": {
+  "name": "Thedavur",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Gangavalli"
+  ],
+  "wards": 15
+ },
+ "252496": {
+  "name": "Gangavalli",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Gangavalli"
+  ],
+  "wards": 15
+ },
+ "252497": {
+  "name": "Thammampatti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Gangavalli"
+  ],
+  "wards": 15
+ },
+ "252498": {
+  "name": "Sentharapatti",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Gangavalli"
+  ],
+  "wards": 15
+ },
+ "252499": {
+  "name": "Komarapalayam",
+  "type": "Municipality",
+  "district": "Namakkal",
+  "taluks": [
+   "Kumarapalayam",
+   "Tiruchengode"
+  ],
+  "wards": 33
+ },
+ "252500": {
+  "name": "Padaiveedu",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Kumarapalayam",
+   "Tiruchengode"
+  ],
+  "wards": 15
+ },
+ "252501": {
+  "name": "Mallasamudram",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Tiruchengode"
+  ],
+  "wards": 15
+ },
+ "252502": {
+  "name": "Tiruchengode",
+  "type": "Municipality",
+  "district": "Namakkal",
+  "taluks": [
+   "Tiruchengode"
+  ],
+  "wards": 33
+ },
+ "252505": {
+  "name": "Alampalayam",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Tiruchengode"
+  ],
+  "wards": 15
+ },
+ "252506": {
+  "name": "Pallipalayam",
+  "type": "Municipality",
+  "district": "Namakkal",
+  "taluks": [
+   "Kumarapalayam",
+   "Tiruchengode"
+  ],
+  "wards": 21
+ },
+ "252508": {
+  "name": "Vennanthur",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 15
+ },
+ "252509": {
+  "name": "Athanur",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 15
+ },
+ "252510": {
+  "name": "R.Pudupatti",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 15
+ },
+ "252511": {
+  "name": "Pattanam",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 15
+ },
+ "252512": {
+  "name": "Rasipuram",
+  "type": "Municipality",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 27
+ },
+ "252513": {
+  "name": "Seerapalli",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 15
+ },
+ "252514": {
+  "name": "Namagiripettai",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 15
+ },
+ "252515": {
+  "name": "Pillanallur",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Rasipuram"
+  ],
+  "wards": 15
+ },
+ "252516": {
+  "name": "Kalappanaickenpatti",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Sendamangalam"
+  ],
+  "wards": 18
+ },
+ "252517": {
+  "name": "Senthamangalam",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Namakkal",
+   "Sendamangalam"
+  ],
+  "wards": 15
+ },
+ "252518": {
+  "name": "Namakkal",
+  "type": "Municipality",
+  "district": "Namakkal",
+  "taluks": [
+   "Mohanur",
+   "Namakkal",
+   "Sendamangalam"
+  ],
+  "wards": 39
+ },
+ "252520": {
+  "name": "Erumaipatti",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Sendamangalam"
+  ],
+  "wards": 15
+ },
+ "252521": {
+  "name": "Mohanur",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Mohanur",
+   "Namakkal"
+  ],
+  "wards": 15
+ },
+ "252522": {
+  "name": "Paramathi",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Paramathi-Velur"
+  ],
+  "wards": 18
+ },
+ "252523": {
+  "name": "Velur",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Paramathi-Velur"
+  ],
+  "wards": 15
+ },
+ "252524": {
+  "name": "Pothanur",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Paramathi-Velur"
+  ],
+  "wards": 15
+ },
+ "252525": {
+  "name": "Pandamangalam",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Paramathi-Velur"
+  ],
+  "wards": 18
+ },
+ "252526": {
+  "name": "Venkarai",
+  "type": "Town Panchayat",
+  "district": "Namakkal",
+  "taluks": [
+   "Paramathi-Velur"
+  ],
+  "wards": 15
+ },
+ "252527": {
+  "name": "Kembainaickenpalayam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Sathyamangalam"
+  ],
+  "wards": 15
+ },
+ "252528": {
+  "name": "Sathyamangalam",
+  "type": "Municipality",
+  "district": "Erode",
+  "taluks": [
+   "Sathyamangalam"
+  ],
+  "wards": 27
+ },
+ "252529": {
+  "name": "Ariyappampalayam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Sathyamangalam"
+  ],
+  "wards": 15
+ },
+ "252530": {
+  "name": "Bhavanisagar",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Sathyamangalam"
+  ],
+  "wards": 15
+ },
+ "252531": {
+  "name": "Punjaipuliampatti",
+  "type": "Municipality",
+  "district": "Erode",
+  "taluks": [
+   "Sathyamangalam"
+  ],
+  "wards": 18
+ },
+ "252532": {
+  "name": "Nerinjipettai",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Anthiyur",
+   "Bhavani"
+  ],
+  "wards": 15
+ },
+ "252533": {
+  "name": "Ammapettai",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Papanasam"
+  ],
+  "wards": 15
+ },
+ "252534": {
+  "name": "Olagadam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Bhavani"
+  ],
+  "wards": 15
+ },
+ "252535": {
+  "name": "Anthiyur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Anthiyur"
+  ],
+  "wards": 18
+ },
+ "252536": {
+  "name": "Athani",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Anthiyur",
+   "Bhavani"
+  ],
+  "wards": 15
+ },
+ "252537": {
+  "name": "Appakudal",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Bhavani"
+  ],
+  "wards": 15
+ },
+ "252538": {
+  "name": "Jambai",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Bhavani"
+  ],
+  "wards": 15
+ },
+ "252539": {
+  "name": "Bhavani",
+  "type": "Municipality",
+  "district": "Erode",
+  "taluks": [
+   "Bhavani"
+  ],
+  "wards": 27
+ },
+ "252540": {
+  "name": "Salangapalayam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Bhavani"
+  ],
+  "wards": 15
+ },
+ "252541": {
+  "name": "Periyakodiveri",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam"
+  ],
+  "wards": 15
+ },
+ "252542": {
+  "name": "Vaniputhur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam"
+  ],
+  "wards": 15
+ },
+ "252543": {
+  "name": "P.Mettupalayam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Bhavani",
+   "Gobichettipalayam"
+  ],
+  "wards": 15
+ },
+ "252544": {
+  "name": "Kugalur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam"
+  ],
+  "wards": 15
+ },
+ "252545": {
+  "name": "Lakkampatti",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam"
+  ],
+  "wards": 15
+ },
+ "252546": {
+  "name": "Kasipalayam (G)",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam"
+  ],
+  "wards": 15
+ },
+ "252547": {
+  "name": "Gobichettipalayam",
+  "type": "Municipality",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam"
+  ],
+  "wards": 30
+ },
+ "252548": {
+  "name": "Elathur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam",
+   "Nambiyur"
+  ],
+  "wards": 15
+ },
+ "252549": {
+  "name": "Kolappalur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam"
+  ],
+  "wards": 15
+ },
+ "252550": {
+  "name": "Nambiyur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Gobichettipalayam",
+   "Nambiyur"
+  ],
+  "wards": 15
+ },
+ "252551": {
+  "name": "Pethampalayam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Perundurai"
+  ],
+  "wards": 15
+ },
+ "252552": {
+  "name": "Pallapalayam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Perundurai"
+  ],
+  "wards": 15
+ },
+ "252553": {
+  "name": "Kanjikovil",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Perundurai"
+  ],
+  "wards": 15
+ },
+ "252554": {
+  "name": "Karumandi Chellipalayam",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Perundurai"
+  ],
+  "wards": 18
+ },
+ "252555": {
+  "name": "Nallampatti",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Perundurai"
+  ],
+  "wards": 12
+ },
+ "252556": {
+  "name": "Kunnathur",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Uthukuli"
+  ],
+  "wards": 15
+ },
+ "252558": {
+  "name": "Perundurai",
+  "type": "Municipality",
+  "district": "Erode",
+  "taluks": [
+   "Perundurai"
+  ],
+  "wards": 15
+ },
+ "252560": {
+  "name": "Uthukuli",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Uthukuli"
+  ],
+  "wards": 15
+ },
+ "252562": {
+  "name": "Chennimalai",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Perundurai"
+  ],
+  "wards": 15
+ },
+ "252564": {
+  "name": "Chithode",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode"
+  ],
+  "wards": 15
+ },
+ "252565": {
+  "name": "Nasiyanur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode"
+  ],
+  "wards": 15
+ },
+ "252568": {
+  "name": "Erode",
+  "type": "Municipal Corporation",
+  "district": "Erode",
+  "taluks": [
+   "Erode"
+  ],
+  "wards": 60
+ },
+ "252572": {
+  "name": "Avalpoondurai",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Modakkurichi"
+  ],
+  "wards": 15
+ },
+ "252573": {
+  "name": "Modakkurichi",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Modakkurichi"
+  ],
+  "wards": 15
+ },
+ "252574": {
+  "name": "Pasur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 12
+ },
+ "252575": {
+  "name": "Arachalur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Modakkurichi"
+  ],
+  "wards": 15
+ },
+ "252576": {
+  "name": "Vadugapatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Periyakulam"
+  ],
+  "wards": 15
+ },
+ "252577": {
+  "name": "Kilambadi",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 15
+ },
+ "252578": {
+  "name": "Vellottamparappu",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 15
+ },
+ "252579": {
+  "name": "Sivagiri",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 18
+ },
+ "252580": {
+  "name": "Kollankoil",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 15
+ },
+ "252581": {
+  "name": "Unjalur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 12
+ },
+ "252582": {
+  "name": "Vengambur",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 15
+ },
+ "252583": {
+  "name": "Kodumudi",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 15
+ },
+ "252584": {
+  "name": "Chennasamudram",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Kodumudi"
+  ],
+  "wards": 15
+ },
+ "252585": {
+  "name": "Muthur",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Kangeyam"
+  ],
+  "wards": 15
+ },
+ "252587": {
+  "name": "Vellakoil",
+  "type": "Municipality",
+  "district": "Tiruppur",
+  "taluks": [
+   "Kangeyam"
+  ],
+  "wards": 21
+ },
+ "252588": {
+  "name": "Rudravathi",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Dharapuram"
+  ],
+  "wards": 15
+ },
+ "252589": {
+  "name": "Kannivadi",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Dindigulwest"
+  ],
+  "wards": 12
+ },
+ "252590": {
+  "name": "Mulanur",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Dharapuram"
+  ],
+  "wards": 15
+ },
+ "252591": {
+  "name": "Kolathupalayam",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Dharapuram"
+  ],
+  "wards": 18
+ },
+ "252592": {
+  "name": "Dharapuram",
+  "type": "Municipality",
+  "district": "Tiruppur",
+  "taluks": [
+   "Dharapuram"
+  ],
+  "wards": 30
+ },
+ "252593": {
+  "name": "Chinnakkampalayam",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Dharapuram"
+  ],
+  "wards": 15
+ },
+ "252594": {
+  "name": "Nelliyalam",
+  "type": "Municipality",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Gudalur",
+   "Panthalur"
+  ],
+  "wards": 21
+ },
+ "252595": {
+  "name": "Devarshola",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Gudalur"
+  ],
+  "wards": 18
+ },
+ "252596": {
+  "name": "Gudalur",
+  "type": "Municipality",
+  "district": "Theni",
+  "taluks": [
+   "Theni",
+   "Uthamapalayam"
+  ],
+  "wards": 21
+ },
+ "252597": {
+  "name": "O Valley",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Gudalur"
+  ],
+  "wards": 18
+ },
+ "252598": {
+  "name": "Sholur",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Udhagamandalam"
+  ],
+  "wards": 15
+ },
+ "252599": {
+  "name": "Naduvattam",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Udhagamandalam"
+  ],
+  "wards": 15
+ },
+ "252600": {
+  "name": "Udhagamandalam",
+  "type": "Municipality",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Udhagamandalam"
+  ],
+  "wards": 36
+ },
+ "252601": {
+  "name": "Kotagiri",
+  "type": "Municipality",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Kotagiri"
+  ],
+  "wards": 21
+ },
+ "252602": {
+  "name": "Jagathala",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Kotagiri"
+  ],
+  "wards": 15
+ },
+ "252603": {
+  "name": "Kethi",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Coonoor"
+  ],
+  "wards": 18
+ },
+ "252605": {
+  "name": "Coonoor",
+  "type": "Municipality",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Coonoor"
+  ],
+  "wards": 30
+ },
+ "252607": {
+  "name": "Adikaratti",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Coonoor"
+  ],
+  "wards": 18
+ },
+ "252608": {
+  "name": "Huligal",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Coonoor"
+  ],
+  "wards": 18
+ },
+ "252609": {
+  "name": "Bikkatty",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Kundah"
+  ],
+  "wards": 15
+ },
+ "252610": {
+  "name": "Kilkunda",
+  "type": "Town Panchayat",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Kundah"
+  ],
+  "wards": 15
+ },
+ "252611": {
+  "name": "Sirumugai",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Mettupalayam"
+  ],
+  "wards": 18
+ },
+ "252612": {
+  "name": "Mettupalayam",
+  "type": "Municipality",
+  "district": "Coimbatore",
+  "taluks": [
+   "Mettupalayam"
+  ],
+  "wards": 33
+ },
+ "252613": {
+  "name": "Karamadai",
+  "type": "Municipality",
+  "district": "Coimbatore",
+  "taluks": [
+   "Mettupalayam"
+  ],
+  "wards": 18
+ },
+ "252614": {
+  "name": "Annur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Annur",
+   "Coimbatore North"
+  ],
+  "wards": 15
+ },
+ "252615": {
+  "name": "Avinashi",
+  "type": "Municipality",
+  "district": "Tiruppur",
+  "taluks": [
+   "Avinashi"
+  ],
+  "wards": 18
+ },
+ "252616": {
+  "name": "Thirumuruganpoondi",
+  "type": "Municipality",
+  "district": "Tiruppur",
+  "taluks": [
+   "Avinashi"
+  ],
+  "wards": 27
+ },
+ "252617": {
+  "name": "Chettipalayam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Madukkari"
+  ],
+  "wards": 15
+ },
+ "252621": {
+  "name": "Tiruppur",
+  "type": "Municipal Corporation",
+  "district": "Tiruppur",
+  "taluks": [
+   "Madathukulam",
+   "Tiruppurnorth",
+   "Tiruppursouth"
+  ],
+  "wards": 60
+ },
+ "252626": {
+  "name": "Veerapandi",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Theni"
+  ],
+  "wards": 15
+ },
+ "252627": {
+  "name": "Mopperipalayam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Sulur"
+  ],
+  "wards": 15
+ },
+ "252628": {
+  "name": "Karumathampatti",
+  "type": "Municipality",
+  "district": "Coimbatore",
+  "taluks": [
+   "Sulur"
+  ],
+  "wards": 27
+ },
+ "252629": {
+  "name": "Irugur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Sulur"
+  ],
+  "wards": 18
+ },
+ "252630": {
+  "name": "Samalapuram",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Palladam"
+  ],
+  "wards": 15
+ },
+ "252632": {
+  "name": "Sulur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Sulur"
+  ],
+  "wards": 18
+ },
+ "252633": {
+  "name": "Pallapalayam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Sulur"
+  ],
+  "wards": 15
+ },
+ "252634": {
+  "name": "Kannampalayam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Sulur"
+  ],
+  "wards": 15
+ },
+ "252636": {
+  "name": "Palladam",
+  "type": "Municipality",
+  "district": "Tiruppur",
+  "taluks": [
+   "Palladam"
+  ],
+  "wards": 18
+ },
+ "252638": {
+  "name": "Periyanaickenpalayam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore North"
+  ],
+  "wards": 18
+ },
+ "252639": {
+  "name": "Gudalur",
+  "type": "Municipality",
+  "district": "The Nilgiris",
+  "taluks": [
+   "Gudalur"
+  ],
+  "wards": 21
+ },
+ "252641": {
+  "name": "Idikarai",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Annur",
+   "Coimbatore North"
+  ],
+  "wards": 15
+ },
+ "252642": {
+  "name": "Sarcarsamakulam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Annur",
+   "Coimbatore North"
+  ],
+  "wards": 15
+ },
+ "252653": {
+  "name": "Coimbatore",
+  "type": "Municipal Corporation",
+  "district": "Coimbatore",
+  "taluks": [
+   "Anaimalai",
+   "Annur",
+   "Coimbatore North",
+   "Coimbatore South",
+   "Kinathukadavu",
+   "Madukkari",
+   "Mettupalayam",
+   "Perur",
+   "Pollachi",
+   "Sulur"
+  ],
+  "wards": 100
+ },
+ "252655": {
+  "name": "Vedapatti",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252656": {
+  "name": "Dhaliyur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252657": {
+  "name": "Thondamuthur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252658": {
+  "name": "Alanthurai",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252659": {
+  "name": "Pooluvapatti",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252660": {
+  "name": "Thenkarai",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252661": {
+  "name": "Perur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252664": {
+  "name": "Vellalur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Madukkari"
+  ],
+  "wards": 15
+ },
+ "252665": {
+  "name": "Madukkarai",
+  "type": "Municipality",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Madukkari"
+  ],
+  "wards": 18
+ },
+ "252666": {
+  "name": "Ettimadai",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Madukkari",
+   "Perur"
+  ],
+  "wards": 12
+ },
+ "252667": {
+  "name": "Thirumalayampalayam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Madukkari"
+  ],
+  "wards": 15
+ },
+ "252668": {
+  "name": "Othakalmandapam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore South",
+   "Madukkari",
+   "Perur"
+  ],
+  "wards": 15
+ },
+ "252670": {
+  "name": "Kinathukadavu",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Kinathukadavu",
+   "Pollachi"
+  ],
+  "wards": 15
+ },
+ "252671": {
+  "name": "Periya Negamam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Pollachi"
+  ],
+  "wards": 15
+ },
+ "252673": {
+  "name": "Zamin Uthukuli",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Pollachi"
+  ],
+  "wards": 15
+ },
+ "252674": {
+  "name": "Pollachi",
+  "type": "Municipality",
+  "district": "Coimbatore",
+  "taluks": [
+   "Pollachi"
+  ],
+  "wards": 36
+ },
+ "252676": {
+  "name": "Suleeswaranpatti",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Pollachi"
+  ],
+  "wards": 15
+ },
+ "252677": {
+  "name": "Samathur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Anaimalai",
+   "Pollachi"
+  ],
+  "wards": 12
+ },
+ "252678": {
+  "name": "Anaimalai",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Anaimalai",
+   "Pollachi"
+  ],
+  "wards": 18
+ },
+ "252679": {
+  "name": "Odaiyakulam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Anaimalai",
+   "Pollachi"
+  ],
+  "wards": 15
+ },
+ "252680": {
+  "name": "Vettaikaranpudur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Anaimalai",
+   "Pollachi"
+  ],
+  "wards": 18
+ },
+ "252681": {
+  "name": "Kottur",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Anaimalai",
+   "Pollachi"
+  ],
+  "wards": 21
+ },
+ "252682": {
+  "name": "Kaniyur",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Madathukulam"
+  ],
+  "wards": 15
+ },
+ "252683": {
+  "name": "Udumalpet",
+  "type": "Municipality",
+  "district": "Tiruppur",
+  "taluks": [
+   "Udumalaipettai"
+  ],
+  "wards": 33
+ },
+ "252685": {
+  "name": "Madathukulam",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Madathukulam"
+  ],
+  "wards": 18
+ },
+ "252686": {
+  "name": "Sankaramanallur",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Madathukulam"
+  ],
+  "wards": 15
+ },
+ "252687": {
+  "name": "Komaralingam",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Madathukulam"
+  ],
+  "wards": 15
+ },
+ "252688": {
+  "name": "Dhali",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Udumalaipettai"
+  ],
+  "wards": 15
+ },
+ "252689": {
+  "name": "Valparai",
+  "type": "Municipality",
+  "district": "Coimbatore",
+  "taluks": [
+   "Valparai"
+  ],
+  "wards": 21
+ },
+ "252690": {
+  "name": "Keeranur",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Kulathur"
+  ],
+  "wards": 15
+ },
+ "252691": {
+  "name": "Ayakudi",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Palani"
+  ],
+  "wards": 18
+ },
+ "252692": {
+  "name": "Palani",
+  "type": "Municipality",
+  "district": "Dindigul",
+  "taluks": [
+   "Palani"
+  ],
+  "wards": 33
+ },
+ "252693": {
+  "name": "Neikkarapatti",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Palani"
+  ],
+  "wards": 15
+ },
+ "252694": {
+  "name": "Balasamudram",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Palani"
+  ],
+  "wards": 15
+ },
+ "252695": {
+  "name": "Oddanchatram",
+  "type": "Municipality",
+  "district": "Dindigul",
+  "taluks": [
+   "Oddanchatram"
+  ],
+  "wards": 18
+ },
+ "252696": {
+  "name": "Palayam",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Gujiliamparai",
+   "Vedasandur"
+  ],
+  "wards": 15
+ },
+ "252697": {
+  "name": "Vedasandur",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Vedasandur"
+  ],
+  "wards": 15
+ },
+ "252698": {
+  "name": "Eriodu",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Vedasandur"
+  ],
+  "wards": 15
+ },
+ "252699": {
+  "name": "Ayyalur",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Vedasandur"
+  ],
+  "wards": 15
+ },
+ "252700": {
+  "name": "Vadamadurai",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Vedasandur"
+  ],
+  "wards": 15
+ },
+ "252701": {
+  "name": "Natham",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Natham"
+  ],
+  "wards": 18
+ },
+ "252702": {
+  "name": "Agaram",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Dindigulwest"
+  ],
+  "wards": 15
+ },
+ "252703": {
+  "name": "Thadikombu",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Dindigulwest"
+  ],
+  "wards": 15
+ },
+ "252704": {
+  "name": "Sriramapuram",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Dindigulwest"
+  ],
+  "wards": 15
+ },
+ "252705": {
+  "name": "Kannivadi",
+  "type": "Town Panchayat",
+  "district": "Tiruppur",
+  "taluks": [
+   "Dharapuram"
+  ],
+  "wards": 15
+ },
+ "252707": {
+  "name": "Dindigul",
+  "type": "Municipal Corporation",
+  "district": "Dindigul",
+  "taluks": [
+   "Dindiguleast",
+   "Dindigulwest"
+  ],
+  "wards": 48
+ },
+ "252709": {
+  "name": "Chinnalapatti",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Athoor"
+  ],
+  "wards": 18
+ },
+ "252710": {
+  "name": "Sithayankottai",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Athoor"
+  ],
+  "wards": 18
+ },
+ "252711": {
+  "name": "Ayyampalayam",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Vedasandur"
+  ],
+  "wards": 15
+ },
+ "252712": {
+  "name": "Pannaikadu",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Kodaikanal"
+  ],
+  "wards": 15
+ },
+ "252713": {
+  "name": "Kodaikanal",
+  "type": "Municipality",
+  "district": "Dindigul",
+  "taluks": [
+   "Kodaikanal"
+  ],
+  "wards": 24
+ },
+ "252714": {
+  "name": "Ammainaickanur",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Nilakkottai"
+  ],
+  "wards": 18
+ },
+ "252715": {
+  "name": "Nilakkottai",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Nilakkottai"
+  ],
+  "wards": 15
+ },
+ "252716": {
+  "name": "Sevugampatti",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Nilakkottai"
+  ],
+  "wards": 15
+ },
+ "252717": {
+  "name": "Pattiveeranpatti",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Nilakkottai"
+  ],
+  "wards": 15
+ },
+ "252718": {
+  "name": "Batlagundu",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Nilakkottai"
+  ],
+  "wards": 18
+ },
+ "252719": {
+  "name": "Aravakurichi",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Aravakurichi"
+  ],
+  "wards": 15
+ },
+ "252720": {
+  "name": "Pallapatti",
+  "type": "Municipality",
+  "district": "Karur",
+  "taluks": [
+   "Aravakurichi"
+  ],
+  "wards": 18
+ },
+ "252723": {
+  "name": "Punjai Thottakurichi",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Manmangalam"
+  ],
+  "wards": 15
+ },
+ "252725": {
+  "name": "Karur",
+  "type": "Municipal Corporation",
+  "district": "Karur",
+  "taluks": [
+   "Karur",
+   "Manmangalam",
+   "Pugalur"
+  ],
+  "wards": 48
+ },
+ "252726": {
+  "name": "Puliyur",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Karur",
+   "Krishnarayapuram"
+  ],
+  "wards": 15
+ },
+ "252727": {
+  "name": "Uppidamangalam",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Karur"
+  ],
+  "wards": 15
+ },
+ "252729": {
+  "name": "Krishnarayapuram",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Krishnarayapuram"
+  ],
+  "wards": 15
+ },
+ "252730": {
+  "name": "P.J. Cholapuram",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Krishnarayapuram"
+  ],
+  "wards": 15
+ },
+ "252731": {
+  "name": "Kulithalai",
+  "type": "Municipality",
+  "district": "Karur",
+  "taluks": [
+   "Kulithalai"
+  ],
+  "wards": 24
+ },
+ "252732": {
+  "name": "Marudur",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Kulithalai"
+  ],
+  "wards": 15
+ },
+ "252733": {
+  "name": "Nangavaram",
+  "type": "Town Panchayat",
+  "district": "Karur",
+  "taluks": [
+   "Kulithalai"
+  ],
+  "wards": 18
+ },
+ "252734": {
+  "name": "Thottiyam",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Thottiyam"
+  ],
+  "wards": 15
+ },
+ "252735": {
+  "name": "Kattuputhur",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Thottiyam"
+  ],
+  "wards": 15
+ },
+ "252736": {
+  "name": "Mettupalayam",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Musiri"
+  ],
+  "wards": 15
+ },
+ "252737": {
+  "name": "Thathaiyangarpet",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Musiri"
+  ],
+  "wards": 15
+ },
+ "252738": {
+  "name": "Musiri",
+  "type": "Municipality",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Musiri"
+  ],
+  "wards": 18
+ },
+ "252739": {
+  "name": "Uppiliapuram",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Thuraiyur"
+  ],
+  "wards": 15
+ },
+ "252740": {
+  "name": "Balakrishnampatti",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Thuraiyur"
+  ],
+  "wards": 15
+ },
+ "252741": {
+  "name": "Thuraiyur",
+  "type": "Municipality",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Thuraiyur"
+  ],
+  "wards": 24
+ },
+ "252742": {
+  "name": "S. Kannanur",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Manachanallur"
+  ],
+  "wards": 15
+ },
+ "252743": {
+  "name": "Manachanallur",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Manachanallur"
+  ],
+  "wards": 18
+ },
+ "252744": {
+  "name": "Kallakudi",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Lalgudi"
+  ],
+  "wards": 15
+ },
+ "252745": {
+  "name": "Pullampadi",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Lalgudi"
+  ],
+  "wards": 15
+ },
+ "252747": {
+  "name": "Lalgudi",
+  "type": "Municipality",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Lalgudi"
+  ],
+  "wards": 18
+ },
+ "252748": {
+  "name": "Sirugamani",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Srirangam"
+  ],
+  "wards": 15
+ },
+ "252749": {
+  "name": "Tiruchirappalli",
+  "type": "Municipal Corporation",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Srirangam",
+   "Thiruverumbur",
+   "Tiruchirappalli East",
+   "Tiruchirappalli West"
+  ],
+  "wards": 65
+ },
+ "252752": {
+  "name": "Koothappar",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Thiruverumbur"
+  ],
+  "wards": 18
+ },
+ "252754": {
+  "name": "Thuvakudi",
+  "type": "Municipality",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Thiruverumbur"
+  ],
+  "wards": 21
+ },
+ "252757": {
+  "name": "Manapparai",
+  "type": "Municipality",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Manapparai"
+  ],
+  "wards": 27
+ },
+ "252758": {
+  "name": "Ponnampatti",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Manapparai"
+  ],
+  "wards": 15
+ },
+ "252759": {
+  "name": "Poolambadi",
+  "type": "Town Panchayat",
+  "district": "Perambalur",
+  "taluks": [
+   "Veppanthattai"
+  ],
+  "wards": 15
+ },
+ "252760": {
+  "name": "Arumbavur",
+  "type": "Town Panchayat",
+  "district": "Perambalur",
+  "taluks": [
+   "Veppanthattai"
+  ],
+  "wards": 15
+ },
+ "252761": {
+  "name": "Kurumbalur",
+  "type": "Town Panchayat",
+  "district": "Perambalur",
+  "taluks": [
+   "Perambalur"
+  ],
+  "wards": 15
+ },
+ "252762": {
+  "name": "Perambalur",
+  "type": "Municipality",
+  "district": "Perambalur",
+  "taluks": [
+   "Perambalur"
+  ],
+  "wards": 21
+ },
+ "252763": {
+  "name": "Labbaikudikadu",
+  "type": "Town Panchayat",
+  "district": "Perambalur",
+  "taluks": [
+   "Kunnam"
+  ],
+  "wards": 15
+ },
+ "252764": {
+  "name": "Varadarajanpettai",
+  "type": "Town Panchayat",
+  "district": "Ariyalur",
+  "taluks": [
+   "Andimadam",
+   "Udayarpalayam"
+  ],
+  "wards": 15
+ },
+ "252765": {
+  "name": "Jayankondam",
+  "type": "Municipality",
+  "district": "Ariyalur",
+  "taluks": [
+   "Andimadam",
+   "Udayarpalayam"
+  ],
+  "wards": 21
+ },
+ "252766": {
+  "name": "Udayarpalayam",
+  "type": "Town Panchayat",
+  "district": "Ariyalur",
+  "taluks": [
+   "Udayarpalayam"
+  ],
+  "wards": 15
+ },
+ "252767": {
+  "name": "Ariyalur",
+  "type": "Municipality",
+  "district": "Ariyalur",
+  "taluks": [
+   "Ariyalur"
+  ],
+  "wards": 18
+ },
+ "252768": {
+  "name": "Melpattampakkam",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Panruti"
+  ],
+  "wards": 15
+ },
+ "252769": {
+  "name": "Nellikuppam",
+  "type": "Municipality",
+  "district": "Cuddalore",
+  "taluks": [
+   "Panruti"
+  ],
+  "wards": 30
+ },
+ "252770": {
+  "name": "Panruti",
+  "type": "Municipality",
+  "district": "Cuddalore",
+  "taluks": [
+   "Panruti"
+  ],
+  "wards": 33
+ },
+ "252771": {
+  "name": "Thorapadi",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Cuddalore",
+   "Panruti"
+  ],
+  "wards": 15
+ },
+ "252773": {
+  "name": "Cuddalore",
+  "type": "Municipal Corporation",
+  "district": "Cuddalore",
+  "taluks": [
+   "Cuddalore"
+  ],
+  "wards": 45
+ },
+ "252775": {
+  "name": "Kurinjipadi",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Kurinjipadi",
+   "Panruti"
+  ],
+  "wards": 18
+ },
+ "252776": {
+  "name": "Vadalur",
+  "type": "Municipality",
+  "district": "Cuddalore",
+  "taluks": [
+   "Kurinjipadi"
+  ],
+  "wards": 27
+ },
+ "252777": {
+  "name": "Parangipettai",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Bhuvanagiri"
+  ],
+  "wards": 18
+ },
+ "252778": {
+  "name": "Sethiathoppu",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Bhuvanagiri",
+   "Chidambaram"
+  ],
+  "wards": 15
+ },
+ "252779": {
+  "name": "Bhuvanagiri",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Bhuvanagiri",
+   "Chidambaram"
+  ],
+  "wards": 18
+ },
+ "252780": {
+  "name": "Killai",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Chidambaram"
+  ],
+  "wards": 15
+ },
+ "252781": {
+  "name": "Chidambaram",
+  "type": "Municipality",
+  "district": "Cuddalore",
+  "taluks": [
+   "Chidambaram"
+  ],
+  "wards": 33
+ },
+ "252782": {
+  "name": "Annamalai Nagar",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Chidambaram"
+  ],
+  "wards": 15
+ },
+ "252783": {
+  "name": "Srimushnam",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Srimushnam"
+  ],
+  "wards": 15
+ },
+ "252784": {
+  "name": "Lalpet",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Kattumannarkoil"
+  ],
+  "wards": 15
+ },
+ "252785": {
+  "name": "Kattumannarkoil",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Kattumannarkoil"
+  ],
+  "wards": 18
+ },
+ "252786": {
+  "name": "Mangalampet",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Virudhachalam"
+  ],
+  "wards": 15
+ },
+ "252787": {
+  "name": "Virudhachalam",
+  "type": "Municipality",
+  "district": "Cuddalore",
+  "taluks": [
+   "Virudhachalam"
+  ],
+  "wards": 33
+ },
+ "252788": {
+  "name": "Gangaikondan",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Virudhachalam"
+  ],
+  "wards": 15
+ },
+ "252789": {
+  "name": "Tittakudi",
+  "type": "Municipality",
+  "district": "Cuddalore",
+  "taluks": [
+   "Tittakudi"
+  ],
+  "wards": 24
+ },
+ "252790": {
+  "name": "Pennadam",
+  "type": "Town Panchayat",
+  "district": "Cuddalore",
+  "taluks": [
+   "Tittakudi"
+  ],
+  "wards": 15
+ },
+ "252791": {
+  "name": "Sirkali",
+  "type": "Municipality",
+  "district": "Mayiladuthurai",
+  "taluks": [
+   "Sirkali"
+  ],
+  "wards": 24
+ },
+ "252792": {
+  "name": "Vaitheeswarankoil",
+  "type": "Town Panchayat",
+  "district": "Mayiladuthurai",
+  "taluks": [
+   "Sirkali"
+  ],
+  "wards": 15
+ },
+ "252793": {
+  "name": "Manalmedu",
+  "type": "Town Panchayat",
+  "district": "Mayiladuthurai",
+  "taluks": [
+   "Mayiladuthurai"
+  ],
+  "wards": 15
+ },
+ "252794": {
+  "name": "Mayiladuthurai",
+  "type": "Municipality",
+  "district": "Mayiladuthurai",
+  "taluks": [
+   "Mayiladuthurai"
+  ],
+  "wards": 36
+ },
+ "252795": {
+  "name": "Kuthalam",
+  "type": "Town Panchayat",
+  "district": "Mayiladuthurai",
+  "taluks": [
+   "Kuthalam"
+  ],
+  "wards": 15
+ },
+ "252796": {
+  "name": "Tharangambadi",
+  "type": "Town Panchayat",
+  "district": "Mayiladuthurai",
+  "taluks": [
+   "Tharangambadi"
+  ],
+  "wards": 18
+ },
+ "252797": {
+  "name": "Thittachery",
+  "type": "Town Panchayat",
+  "district": "Nagapattinam",
+  "taluks": [
+   "Nagapattinam"
+  ],
+  "wards": 15
+ },
+ "252799": {
+  "name": "Kilvelur",
+  "type": "Town Panchayat",
+  "district": "Nagapattinam",
+  "taluks": [
+   "Kilvelur"
+  ],
+  "wards": 15
+ },
+ "252800": {
+  "name": "Velankanni",
+  "type": "Town Panchayat",
+  "district": "Nagapattinam",
+  "taluks": [
+   "Kilvelur"
+  ],
+  "wards": 15
+ },
+ "252801": {
+  "name": "Thalainayar",
+  "type": "Town Panchayat",
+  "district": "Nagapattinam",
+  "taluks": [
+   "Vedaranyam"
+  ],
+  "wards": 15
+ },
+ "252802": {
+  "name": "Vedaranyam",
+  "type": "Municipality",
+  "district": "Nagapattinam",
+  "taluks": [
+   "Vedaranyam"
+  ],
+  "wards": 21
+ },
+ "252803": {
+  "name": "Valangaiman",
+  "type": "Town Panchayat",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Valangaiman"
+  ],
+  "wards": 15
+ },
+ "252804": {
+  "name": "Kodavasal",
+  "type": "Town Panchayat",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Kudavasal"
+  ],
+  "wards": 15
+ },
+ "252805": {
+  "name": "Koradacheri",
+  "type": "Town Panchayat",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Kudavasal",
+   "Needamangalam"
+  ],
+  "wards": 15
+ },
+ "252806": {
+  "name": "Peralam",
+  "type": "Town Panchayat",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Nannilam"
+  ],
+  "wards": 12
+ },
+ "252807": {
+  "name": "Nannilam",
+  "type": "Town Panchayat",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Nannilam"
+  ],
+  "wards": 15
+ },
+ "252808": {
+  "name": "Tiruvarur",
+  "type": "Municipality",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Thiruvarur"
+  ],
+  "wards": 30
+ },
+ "252809": {
+  "name": "Needamangalam",
+  "type": "Town Panchayat",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Needamangalam"
+  ],
+  "wards": 15
+ },
+ "252810": {
+  "name": "Koothanallur",
+  "type": "Municipality",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Koothanallur",
+   "Needamangalam"
+  ],
+  "wards": 24
+ },
+ "252811": {
+  "name": "Mannargudi",
+  "type": "Municipality",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Mannargudi"
+  ],
+  "wards": 33
+ },
+ "252812": {
+  "name": "Thiruthuraipoondi",
+  "type": "Municipality",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Thiruthuraipoondi"
+  ],
+  "wards": 24
+ },
+ "252813": {
+  "name": "Muthupet",
+  "type": "Town Panchayat",
+  "district": "Thiruvarur",
+  "taluks": [
+   "Thiruthuraipoondi"
+  ],
+  "wards": 18
+ },
+ "252814": {
+  "name": "Thiruppanandal",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thiruvidaimarudur"
+  ],
+  "wards": 15
+ },
+ "252815": {
+  "name": "Veppathur",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thiruvidaimarudur"
+  ],
+  "wards": 15
+ },
+ "252816": {
+  "name": "Thirupuvanam",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thiruvidaimarudur"
+  ],
+  "wards": 15
+ },
+ "252817": {
+  "name": "Thiruvidaimarudur",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thiruvidaimarudur"
+  ],
+  "wards": 15
+ },
+ "252818": {
+  "name": "Aduthurai",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thiruvidaimarudur"
+  ],
+  "wards": 15
+ },
+ "252819": {
+  "name": "Cholapuram",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Kumbakonam"
+  ],
+  "wards": 15
+ },
+ "252822": {
+  "name": "Swamimalai",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Kumbakonam"
+  ],
+  "wards": 15
+ },
+ "252823": {
+  "name": "Kumbakonam",
+  "type": "Municipal Corporation",
+  "district": "Thanjavur",
+  "taluks": [
+   "Kumbakonam"
+  ],
+  "wards": 45
+ },
+ "252824": {
+  "name": "Thirunageswaram",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Kumbakonam"
+  ],
+  "wards": 15
+ },
+ "252826": {
+  "name": "Papanasam",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Papanasam"
+  ],
+  "wards": 15
+ },
+ "252828": {
+  "name": "Melattur",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Papanasam"
+  ],
+  "wards": 15
+ },
+ "252829": {
+  "name": "Ammapettai",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Anthiyur",
+   "Bhavani"
+  ],
+  "wards": 15
+ },
+ "252830": {
+  "name": "Thiruvaiyaru",
+  "type": "Municipality",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thiruvaiyaru"
+  ],
+  "wards": 15
+ },
+ "252831": {
+  "name": "Thirukkattupalli",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Budalur",
+   "Thiruvaiyaru"
+  ],
+  "wards": 15
+ },
+ "252832": {
+  "name": "Melathiruppanthuruthi",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thiruvaiyaru"
+  ],
+  "wards": 15
+ },
+ "252833": {
+  "name": "Thanjavur",
+  "type": "Municipal Corporation",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thanjavur"
+  ],
+  "wards": 51
+ },
+ "252836": {
+  "name": "Vallam",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Thanjavur"
+  ],
+  "wards": 15
+ },
+ "252837": {
+  "name": "Orathanadu",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Orathanadu"
+  ],
+  "wards": 15
+ },
+ "252838": {
+  "name": "Madukkur",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Pattukkottai"
+  ],
+  "wards": 15
+ },
+ "252839": {
+  "name": "Pattukkottai",
+  "type": "Municipality",
+  "district": "Thanjavur",
+  "taluks": [
+   "Pattukkottai"
+  ],
+  "wards": 33
+ },
+ "252840": {
+  "name": "Adiramapattinam",
+  "type": "Municipality",
+  "district": "Thanjavur",
+  "taluks": [
+   "Pattukkottai"
+  ],
+  "wards": 27
+ },
+ "252841": {
+  "name": "Peravurani",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Peravurani"
+  ],
+  "wards": 18
+ },
+ "252842": {
+  "name": "Perumagalur",
+  "type": "Town Panchayat",
+  "district": "Thanjavur",
+  "taluks": [
+   "Peravurani"
+  ],
+  "wards": 12
+ },
+ "252843": {
+  "name": "Iluppur",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Iluppur"
+  ],
+  "wards": 15
+ },
+ "252844": {
+  "name": "Annavasal",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Iluppur"
+  ],
+  "wards": 15
+ },
+ "252845": {
+  "name": "Keeranur",
+  "type": "Town Panchayat",
+  "district": "Dindigul",
+  "taluks": [
+   "Palani"
+  ],
+  "wards": 15
+ },
+ "252848": {
+  "name": "Pudukkottai",
+  "type": "Municipal Corporation",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Alangudi",
+   "Pudukkottai"
+  ],
+  "wards": 42
+ },
+ "252849": {
+  "name": "Ponnamaravathi",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Ponnamaravathi"
+  ],
+  "wards": 15
+ },
+ "252850": {
+  "name": "Arimalam",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Thirumayam"
+  ],
+  "wards": 15
+ },
+ "252851": {
+  "name": "Karambakkudi",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Karambakudi"
+  ],
+  "wards": 15
+ },
+ "252852": {
+  "name": "Alangudi",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Alangudi"
+  ],
+  "wards": 15
+ },
+ "252853": {
+  "name": "Keeramangalam",
+  "type": "Town Panchayat",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Alangudi"
+  ],
+  "wards": 15
+ },
+ "252854": {
+  "name": "Aranthangi",
+  "type": "Municipality",
+  "district": "Pudukkottai",
+  "taluks": [
+   "Aranthangi"
+  ],
+  "wards": 27
+ },
+ "252855": {
+  "name": "Nerkuppai",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Singampunari",
+   "Thiruppathur"
+  ],
+  "wards": 12
+ },
+ "252856": {
+  "name": "Singampuneri",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Singampunari"
+  ],
+  "wards": 18
+ },
+ "252857": {
+  "name": "Tirupathur",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Singampunari",
+   "Thiruppathur"
+  ],
+  "wards": 18
+ },
+ "252858": {
+  "name": "Kanadukathan",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Singampunari"
+  ],
+  "wards": 12
+ },
+ "252859": {
+  "name": "Pallathur",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Singampunari"
+  ],
+  "wards": 15
+ },
+ "252860": {
+  "name": "Kottaiyur",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Karaikkudi"
+  ],
+  "wards": 15
+ },
+ "252861": {
+  "name": "Kandanur",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Karaikkudi"
+  ],
+  "wards": 15
+ },
+ "252862": {
+  "name": "Puduvayal",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Karaikkudi"
+  ],
+  "wards": 15
+ },
+ "252863": {
+  "name": "Karaikudi",
+  "type": "Municipal Corporation",
+  "district": "Sivaganga",
+  "taluks": [
+   "Karaikkudi",
+   "Thiruppathur"
+  ],
+  "wards": 36
+ },
+ "252864": {
+  "name": "Devakottai",
+  "type": "Municipality",
+  "district": "Sivaganga",
+  "taluks": [
+   "Devakottai"
+  ],
+  "wards": 27
+ },
+ "252865": {
+  "name": "Nattarasankottai",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Sivaganga"
+  ],
+  "wards": 12
+ },
+ "252866": {
+  "name": "Sivagangai",
+  "type": "Municipality",
+  "district": "Sivaganga",
+  "taluks": [
+   "Sivaganga"
+  ],
+  "wards": 27
+ },
+ "252867": {
+  "name": "Thirupuvanam",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Thiruppuvanam"
+  ],
+  "wards": 18
+ },
+ "252868": {
+  "name": "Manamadurai",
+  "type": "Municipality",
+  "district": "Sivaganga",
+  "taluks": [
+   "Manamadurai"
+  ],
+  "wards": 18
+ },
+ "252869": {
+  "name": "Ilayangudi",
+  "type": "Town Panchayat",
+  "district": "Sivaganga",
+  "taluks": [
+   "Ilayangudi"
+  ],
+  "wards": 18
+ },
+ "252870": {
+  "name": "A.Vellalapatti",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Melur"
+  ],
+  "wards": 15
+ },
+ "252871": {
+  "name": "Melur",
+  "type": "Municipality",
+  "district": "Madurai",
+  "taluks": [
+   "Madurai North",
+   "Melur"
+  ],
+  "wards": 27
+ },
+ "252872": {
+  "name": "Paravai",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Madurai North"
+  ],
+  "wards": 15
+ },
+ "252880": {
+  "name": "Palamedu",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Vadipatti"
+  ],
+  "wards": 15
+ },
+ "252881": {
+  "name": "Vadipatti",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Vadipatti"
+  ],
+  "wards": 18
+ },
+ "252882": {
+  "name": "Sholavandan",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Vadipatti"
+  ],
+  "wards": 18
+ },
+ "252883": {
+  "name": "Alanganallur",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Vadipatti"
+  ],
+  "wards": 15
+ },
+ "252884": {
+  "name": "Usilampatti",
+  "type": "Municipality",
+  "district": "Madurai",
+  "taluks": [
+   "Usilampatti"
+  ],
+  "wards": 24
+ },
+ "252885": {
+  "name": "Elumalai",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Peraiyur"
+  ],
+  "wards": 18
+ },
+ "252886": {
+  "name": "Peraiyur",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Peraiyur"
+  ],
+  "wards": 15
+ },
+ "252887": {
+  "name": "T.Kallupatti",
+  "type": "Town Panchayat",
+  "district": "Madurai",
+  "taluks": [
+   "Peraiyur"
+  ],
+  "wards": 15
+ },
+ "252888": {
+  "name": "Tirumangalam",
+  "type": "Municipality",
+  "district": "Madurai",
+  "taluks": [
+   "Thirumangalam"
+  ],
+  "wards": 27
+ },
+ "252889": {
+  "name": "Madurai",
+  "type": "Municipal Corporation",
+  "district": "Madurai",
+  "taluks": [
+   "Madurai North",
+   "Madurai South",
+   "Thirupparankundram"
+  ],
+  "wards": 100
+ },
+ "252895": {
+  "name": "Boothipuram",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Bodinayakanur"
+  ],
+  "wards": 15
+ },
+ "252896": {
+  "name": "B. Meenakshipuram",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Bodinayakanur"
+  ],
+  "wards": 15
+ },
+ "252897": {
+  "name": "Bodinayakanur",
+  "type": "Municipality",
+  "district": "Theni",
+  "taluks": [
+   "Bodinayakanur"
+  ],
+  "wards": 33
+ },
+ "252898": {
+  "name": "Melachokkanathapuram",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Bodinayakanur"
+  ],
+  "wards": 15
+ },
+ "252899": {
+  "name": "Devadanapatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Periyakulam"
+  ],
+  "wards": 18
+ },
+ "252900": {
+  "name": "Ganguvarpatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Periyakulam"
+  ],
+  "wards": 15
+ },
+ "252901": {
+  "name": "Thamaraikulam",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Periyakulam"
+  ],
+  "wards": 15
+ },
+ "252902": {
+  "name": "Periyakulam",
+  "type": "Municipality",
+  "district": "Theni",
+  "taluks": [
+   "Periyakulam"
+  ],
+  "wards": 30
+ },
+ "252903": {
+  "name": "Thenkarai",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Periyakulam"
+  ],
+  "wards": 15
+ },
+ "252904": {
+  "name": "Vadugapatti",
+  "type": "Town Panchayat",
+  "district": "Erode",
+  "taluks": [
+   "Erode",
+   "Modakkurichi"
+  ],
+  "wards": 15
+ },
+ "252905": {
+  "name": "Theni-Allinagaram",
+  "type": "Municipality",
+  "district": "Theni",
+  "taluks": [
+   "Theni"
+  ],
+  "wards": 33
+ },
+ "252906": {
+  "name": "Palani Chettipatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Theni"
+  ],
+  "wards": 15
+ },
+ "252908": {
+  "name": "Thevaram",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 18
+ },
+ "252909": {
+  "name": "Kuchanur",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 12
+ },
+ "252910": {
+  "name": "Markayankottai",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 12
+ },
+ "252911": {
+  "name": "Pannaipuram",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 15
+ },
+ "252912": {
+  "name": "Kombai",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 15
+ },
+ "252913": {
+  "name": "Chinnamanur",
+  "type": "Municipality",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 27
+ },
+ "252914": {
+  "name": "Odaipatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 15
+ },
+ "252915": {
+  "name": "Uthamapalayam",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 18
+ },
+ "252916": {
+  "name": "Hanumanthampatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 15
+ },
+ "252917": {
+  "name": "Pudupatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 15
+ },
+ "252918": {
+  "name": "Cumbum",
+  "type": "Municipality",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 33
+ },
+ "252919": {
+  "name": "Kamayagoundanpatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 15
+ },
+ "252920": {
+  "name": "Gudalur-Cbe",
+  "type": "Municipality",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore North"
+  ],
+  "wards": 27
+ },
+ "252921": {
+  "name": "Highways",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Uthamapalayam"
+  ],
+  "wards": 15
+ },
+ "252922": {
+  "name": "Aundipatti",
+  "type": "Town Panchayat",
+  "district": "Theni",
+  "taluks": [
+   "Andipatti"
+  ],
+  "wards": 18
+ },
+ "252923": {
+  "name": "Rajapalayam",
+  "type": "Municipality",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Rajapalayam"
+  ],
+  "wards": 42
+ },
+ "252924": {
+  "name": "Seithur",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Rajapalayam"
+  ],
+  "wards": 18
+ },
+ "252926": {
+  "name": "Chettiarpatti",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Rajapalayam"
+  ],
+  "wards": 15
+ },
+ "252928": {
+  "name": "S.Kodikulam",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Srivilliputhur",
+   "Watrap"
+  ],
+  "wards": 15
+ },
+ "252930": {
+  "name": "Sundarapandiam",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Srivilliputhur"
+  ],
+  "wards": 15
+ },
+ "252931": {
+  "name": "Mamsapuram",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Srivilliputhur"
+  ],
+  "wards": 18
+ },
+ "252932": {
+  "name": "Srivilliputhur",
+  "type": "Municipality",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Srivilliputhur"
+  ],
+  "wards": 33
+ },
+ "252938": {
+  "name": "Sivakasi",
+  "type": "Municipal Corporation",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Sivakasi"
+  ],
+  "wards": 33
+ },
+ "252943": {
+  "name": "Virudhunagar",
+  "type": "Municipality",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Virudhunagar"
+  ],
+  "wards": 36
+ },
+ "252945": {
+  "name": "Kariapatti",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Kariapatti"
+  ],
+  "wards": 15
+ },
+ "252946": {
+  "name": "Mallankinaru",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Kariapatti"
+  ],
+  "wards": 15
+ },
+ "252947": {
+  "name": "Aruppukkottai",
+  "type": "Municipality",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Aruppukkottai"
+  ],
+  "wards": 36
+ },
+ "252948": {
+  "name": "Sattur",
+  "type": "Municipality",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Sattur"
+  ],
+  "wards": 24
+ },
+ "252950": {
+  "name": "Thondi",
+  "type": "Town Panchayat",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Tiruvadanai"
+  ],
+  "wards": 15
+ },
+ "252951": {
+  "name": "R.S.Mangalam",
+  "type": "Town Panchayat",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Rajasingamangalam",
+   "Tiruvadanai"
+  ],
+  "wards": 15
+ },
+ "252952": {
+  "name": "Paramakudi",
+  "type": "Municipality",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Paramakudi"
+  ],
+  "wards": 36
+ },
+ "252953": {
+  "name": "Mudukulathur",
+  "type": "Town Panchayat",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Mudukulathur"
+  ],
+  "wards": 15
+ },
+ "252954": {
+  "name": "Abiramam",
+  "type": "Town Panchayat",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Kamuthi"
+  ],
+  "wards": 15
+ },
+ "252955": {
+  "name": "Kamuthi",
+  "type": "Town Panchayat",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Kamuthi"
+  ],
+  "wards": 15
+ },
+ "252956": {
+  "name": "Sayalgudi",
+  "type": "Town Panchayat",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Kadaladi"
+  ],
+  "wards": 15
+ },
+ "252957": {
+  "name": "Ramanathapuram",
+  "type": "Municipality",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Ramanathapuram"
+  ],
+  "wards": 33
+ },
+ "252958": {
+  "name": "Keelakarai",
+  "type": "Municipality",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Ramanathapuram"
+  ],
+  "wards": 21
+ },
+ "252959": {
+  "name": "Mandapam",
+  "type": "Town Panchayat",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Ramanathapuram"
+  ],
+  "wards": 18
+ },
+ "252961": {
+  "name": "Kalugumalai",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Kovilpatti"
+  ],
+  "wards": 15
+ },
+ "252962": {
+  "name": "Kovilpatti",
+  "type": "Municipality",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Kovilpatti"
+  ],
+  "wards": 36
+ },
+ "252964": {
+  "name": "Kadambur",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Kayathar",
+   "Kovilpatti"
+  ],
+  "wards": 12
+ },
+ "252965": {
+  "name": "Kayatharu",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Kayathar",
+   "Kovilpatti"
+  ],
+  "wards": 15
+ },
+ "252966": {
+  "name": "Ettayapuram",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Ettayapuram"
+  ],
+  "wards": 15
+ },
+ "252967": {
+  "name": "V. Pudur",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Vilathikulam"
+  ],
+  "wards": 15
+ },
+ "252968": {
+  "name": "Vilathikulam",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Vilathikulam"
+  ],
+  "wards": 15
+ },
+ "252970": {
+  "name": "Thoothukudi",
+  "type": "Municipal Corporation",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Kayathar",
+   "Thoothukkudi"
+  ],
+  "wards": 60
+ },
+ "252973": {
+  "name": "Sayapuram",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Eral",
+   "Srivaikuntam"
+  ],
+  "wards": 15
+ },
+ "252974": {
+  "name": "Perungulam",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Eral",
+   "Ettayapuram",
+   "Srivaikuntam"
+  ],
+  "wards": 15
+ },
+ "252975": {
+  "name": "Eral",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Srivaikuntam"
+  ],
+  "wards": 15
+ },
+ "252976": {
+  "name": "Srivaikuntam",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Srivaikuntam"
+  ],
+  "wards": 18
+ },
+ "252977": {
+  "name": "Alwarthirunagiri",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Eral",
+   "Tiruchendur"
+  ],
+  "wards": 15
+ },
+ "252978": {
+  "name": "Thenthiruperai",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Eral"
+  ],
+  "wards": 12
+ },
+ "252979": {
+  "name": "Athur",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Tiruchendur"
+  ],
+  "wards": 15
+ },
+ "252980": {
+  "name": "Kayalpattinam",
+  "type": "Municipality",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Tiruchendur"
+  ],
+  "wards": 18
+ },
+ "252981": {
+  "name": "Arumuganeri",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Tiruchendur"
+  ],
+  "wards": 18
+ },
+ "252982": {
+  "name": "Kanam",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Tiruchendur"
+  ],
+  "wards": 12
+ },
+ "252983": {
+  "name": "Nazerath",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Eral",
+   "Tiruchendur"
+  ],
+  "wards": 18
+ },
+ "252984": {
+  "name": "Tiruchendur",
+  "type": "Municipality",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Tiruchendur"
+  ],
+  "wards": 27
+ },
+ "252985": {
+  "name": "Udangudi",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Tiruchendur"
+  ],
+  "wards": 18
+ },
+ "252986": {
+  "name": "Sathankulam",
+  "type": "Town Panchayat",
+  "district": "Thoothukkudi",
+  "taluks": [
+   "Sathankulam"
+  ],
+  "wards": 15
+ },
+ "252987": {
+  "name": "Sivagiri",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Sivagiri"
+  ],
+  "wards": 18
+ },
+ "252988": {
+  "name": "Rayagiri",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Sivagiri"
+  ],
+  "wards": 15
+ },
+ "252989": {
+  "name": "Vasudevanallur",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Sivagiri"
+  ],
+  "wards": 18
+ },
+ "252990": {
+  "name": "Puliangudi",
+  "type": "Municipality",
+  "district": "Tenkasi",
+  "taluks": [
+   "Sivagiri"
+  ],
+  "wards": 33
+ },
+ "252991": {
+  "name": "Thiruvengadam",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Sankarankoil"
+  ],
+  "wards": 15
+ },
+ "252992": {
+  "name": "Sankarankovil",
+  "type": "Municipality",
+  "district": "Tenkasi",
+  "taluks": [
+   "Sankarankoil"
+  ],
+  "wards": 30
+ },
+ "252993": {
+  "name": "Surandai",
+  "type": "Municipality",
+  "district": "Tenkasi",
+  "taluks": [
+   "Veerakeralamputhur"
+  ],
+  "wards": 27
+ },
+ "252994": {
+  "name": "Kadayanallur",
+  "type": "Municipality",
+  "district": "Tenkasi",
+  "taluks": [
+   "Kadayanallur",
+   "Tenkasi"
+  ],
+  "wards": 33
+ },
+ "252995": {
+  "name": "Sambavar Vadagarai",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Kadayanallur",
+   "Tenkasi"
+  ],
+  "wards": 15
+ },
+ "252996": {
+  "name": "Aygudi",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Kadayanallur"
+  ],
+  "wards": 15
+ },
+ "252997": {
+  "name": "Tenkasi",
+  "type": "Municipality",
+  "district": "Tenkasi",
+  "taluks": [
+   "Tenkasi"
+  ],
+  "wards": 33
+ },
+ "252998": {
+  "name": "Sundarapandiapuram",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Tenkasi"
+  ],
+  "wards": 15
+ },
+ "252999": {
+  "name": "Ilanji",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Tenkasi"
+  ],
+  "wards": 15
+ },
+ "253000": {
+  "name": "Melagaram",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Tenkasi"
+  ],
+  "wards": 15
+ },
+ "253001": {
+  "name": "Courtalam",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Tenkasi"
+  ],
+  "wards": 8
+ },
+ "253002": {
+  "name": "Achampudur",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Kadayanallur",
+   "Shenkottai"
+  ],
+  "wards": 15
+ },
+ "253003": {
+  "name": "Vadakarai Keezhpadugai",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Shenkottai"
+  ],
+  "wards": 18
+ },
+ "253004": {
+  "name": "Panpoli",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Shenkottai"
+  ],
+  "wards": 15
+ },
+ "253005": {
+  "name": "Pudur (S)",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Shenkottai"
+  ],
+  "wards": 15
+ },
+ "253006": {
+  "name": "Sengottai",
+  "type": "Municipality",
+  "district": "Tenkasi",
+  "taluks": [
+   "Shenkottai",
+   "Tenkasi"
+  ],
+  "wards": 24
+ },
+ "253007": {
+  "name": "Kilapavoor",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Alangulam"
+  ],
+  "wards": 18
+ },
+ "253008": {
+  "name": "Alangulam",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Alangulam"
+  ],
+  "wards": 15
+ },
+ "253009": {
+  "name": "Sankarnagar",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Tirunelveli"
+  ],
+  "wards": 12
+ },
+ "253010": {
+  "name": "Naranammalpuram",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Tirunelveli"
+  ],
+  "wards": 15
+ },
+ "253011": {
+  "name": "Tirunelveli",
+  "type": "Municipal Corporation",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Palayamkottai",
+   "Tirunelveli"
+  ],
+  "wards": 55
+ },
+ "253012": {
+  "name": "Alwarkurichi",
+  "type": "Town Panchayat",
+  "district": "Tenkasi",
+  "taluks": [
+   "Tenkasi"
+  ],
+  "wards": 15
+ },
+ "253013": {
+  "name": "Mukkudal",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Cheranmahadevi"
+  ],
+  "wards": 15
+ },
+ "253014": {
+  "name": "Ambasamudram",
+  "type": "Municipality",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Ambasamudram"
+  ],
+  "wards": 21
+ },
+ "253015": {
+  "name": "Vikramasingapuram",
+  "type": "Municipality",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Ambasamudram"
+  ],
+  "wards": 21
+ },
+ "253017": {
+  "name": "Kallidaikurichi",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Ambasamudram"
+  ],
+  "wards": 21
+ },
+ "253018": {
+  "name": "Veeravanallur",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Cheranmahadevi"
+  ],
+  "wards": 18
+ },
+ "253019": {
+  "name": "Cheranmahadevi",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Cheranmahadevi"
+  ],
+  "wards": 18
+ },
+ "253020": {
+  "name": "Pathamadai",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Ambasamudram",
+   "Cheranmahadevi"
+  ],
+  "wards": 15
+ },
+ "253021": {
+  "name": "Melaseval",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Cheranmahadevi"
+  ],
+  "wards": 15
+ },
+ "253022": {
+  "name": "Gopalasamudram",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Cheranmahadevi"
+  ],
+  "wards": 15
+ },
+ "253023": {
+  "name": "Manimutharu",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Ambasamudram",
+   "Cheranmahadevi"
+  ],
+  "wards": 15
+ },
+ "253024": {
+  "name": "Moolaikaraipatti",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Nanguneri"
+  ],
+  "wards": 15
+ },
+ "253026": {
+  "name": "Nanguneri",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Nanguneri"
+  ],
+  "wards": 15
+ },
+ "253027": {
+  "name": "Thirukarungudi",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Nanguneri"
+  ],
+  "wards": 15
+ },
+ "253028": {
+  "name": "Eruvadi",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Nanguneri"
+  ],
+  "wards": 15
+ },
+ "253029": {
+  "name": "Vadakkuvalliyur",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Cheranmahadevi"
+  ],
+  "wards": 18
+ },
+ "253030": {
+  "name": "Thisayanvilai",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Cheranmahadevi",
+   "Radhapuram"
+  ],
+  "wards": 18
+ },
+ "253031": {
+  "name": "Panagudi",
+  "type": "Town Panchayat",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Radhapuram"
+  ],
+  "wards": 18
+ },
+ "253032": {
+  "name": "Kadayal",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "253033": {
+  "name": "Arumanai",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 15
+ },
+ "253034": {
+  "name": "Edaicode",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "253035": {
+  "name": "Palugal",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "253036": {
+  "name": "Kaliyakkavilai",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 15
+ },
+ "253037": {
+  "name": "Pacode",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "253038": {
+  "name": "Kuzhithurai",
+  "type": "Municipality",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 21
+ },
+ "253039": {
+  "name": "Unnamalaikadai",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "253041": {
+  "name": "Puthukkadai",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 15
+ },
+ "253042": {
+  "name": "Kollancode",
+  "type": "Municipality",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Killiyoor",
+   "Vilavancode"
+  ],
+  "wards": 33
+ },
+ "253044": {
+  "name": "Keezhkulam",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Killiyoor"
+  ],
+  "wards": 18
+ },
+ "253045": {
+  "name": "Killiyoor",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Killiyoor",
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "253046": {
+  "name": "Karungal",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Killiyoor",
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "253048": {
+  "name": "Thirparappu",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam",
+   "Thiruvattar"
+  ],
+  "wards": 18
+ },
+ "253049": {
+  "name": "Thiruvattar",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam",
+   "Thiruvattar"
+  ],
+  "wards": 18
+ },
+ "253050": {
+  "name": "Kulasekaram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam",
+   "Thiruvattar"
+  ],
+  "wards": 18
+ },
+ "253051": {
+  "name": "Ponmanai",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam",
+   "Thiruvattar"
+  ],
+  "wards": 15
+ },
+ "253052": {
+  "name": "Kumarapuram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam",
+   "Thovala"
+  ],
+  "wards": 15
+ },
+ "253053": {
+  "name": "Kothanallur",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 18
+ },
+ "253054": {
+  "name": "Verkilambi",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 18
+ },
+ "253055": {
+  "name": "Athur",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam",
+   "Thiruvattar"
+  ],
+  "wards": 15
+ },
+ "253056": {
+  "name": "Valvaithankoshtam",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 18
+ },
+ "253057": {
+  "name": "Mulagumudu",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 18
+ },
+ "253058": {
+  "name": "Kappiyarai",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253059": {
+  "name": "Thiruvithancode",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 18
+ },
+ "253060": {
+  "name": "Vilavur",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253061": {
+  "name": "Padmanabhapuram",
+  "type": "Municipality",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 21
+ },
+ "253062": {
+  "name": "Villukuri",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253064": {
+  "name": "Eraniel",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253065": {
+  "name": "Kallukuttam",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 18
+ },
+ "253066": {
+  "name": "Neyyoor",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253067": {
+  "name": "Reethapuram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253068": {
+  "name": "Colachel",
+  "type": "Municipality",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 24
+ },
+ "253069": {
+  "name": "Manavalakurichi",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253070": {
+  "name": "Mandaikadu",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253071": {
+  "name": "Thingalnagar",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253072": {
+  "name": "Vellimalai",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Kalkulam"
+  ],
+  "wards": 15
+ },
+ "253073": {
+  "name": "Azhagiapandipuram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Thovala"
+  ],
+  "wards": 15
+ },
+ "253074": {
+  "name": "Boothapandi",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Thovala"
+  ],
+  "wards": 15
+ },
+ "253075": {
+  "name": "Thazhakudy",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Thovala"
+  ],
+  "wards": 15
+ },
+ "253076": {
+  "name": "Aralvaimozhi",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Thovala"
+  ],
+  "wards": 18
+ },
+ "253077": {
+  "name": "Therur",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253078": {
+  "name": "Marungur",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253079": {
+  "name": "Nagercoil",
+  "type": "Municipal Corporation",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram",
+   "Kalkulam"
+  ],
+  "wards": 52
+ },
+ "253081": {
+  "name": "Ganapathipuram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253082": {
+  "name": "Suchindrum",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253083": {
+  "name": "Mylaudy",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253085": {
+  "name": "Puthalam",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253087": {
+  "name": "Thenthamaraikulam",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253088": {
+  "name": "Kottaram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253089": {
+  "name": "Anjugrammam",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253090": {
+  "name": "Agastheeswaram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "253091": {
+  "name": "Kanniyakumari",
+  "type": "Municipality",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 18
+ },
+ "260288": {
+  "name": "Azhagappapuram",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Agastheeswaram"
+  ],
+  "wards": 15
+ },
+ "260289": {
+  "name": "Elampillai",
+  "type": "Town Panchayat",
+  "district": "Salem",
+  "taluks": [
+   "Salem South"
+  ],
+  "wards": 18
+ },
+ "260290": {
+  "name": "Narasimhanaickenpalayam",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [
+   "Coimbatore North"
+  ],
+  "wards": 15
+ },
+ "260291": {
+  "name": "No. 4 Veerapandi",
+  "type": "Town Panchayat",
+  "district": "Coimbatore",
+  "taluks": [],
+  "wards": 15
+ },
+ "260292": {
+  "name": "Palappallam",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Killiyoor",
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "260293": {
+  "name": "Poovalur",
+  "type": "Town Panchayat",
+  "district": "Tiruchirappalli",
+  "taluks": [
+   "Lalgudi"
+  ],
+  "wards": 15
+ },
+ "260663": {
+  "name": "Nalloor",
+  "type": "Town Panchayat",
+  "district": "Kanniyakumari",
+  "taluks": [
+   "Vilavancode"
+  ],
+  "wards": 18
+ },
+ "260677": {
+  "name": "Watrap",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Srivilliputhur"
+  ],
+  "wards": 18
+ },
+ "260678": {
+  "name": "W.Pudhupatti",
+  "type": "Town Panchayat",
+  "district": "Virudhunagar",
+  "taluks": [
+   "Srivilliputhur"
+  ],
+  "wards": 15
+ },
+ "290447": {
+  "name": "Rameswaram",
+  "type": "Municipality",
+  "district": "Ramanathapuram",
+  "taluks": [
+   "Ramanathapuram"
+  ],
+  "wards": 21
+ },
+ "290455": {
+  "name": "Kangeyam",
+  "type": "Municipality",
+  "district": "Tiruppur",
+  "taluks": [
+   "Kangeyam"
+  ],
+  "wards": 18
+ },
+ "299500": {
+  "name": "Nagapattinam",
+  "type": "Municipality",
+  "district": "Nagapattinam",
+  "taluks": [],
+  "wards": 36
+ },
+ "300381": {
+  "name": "Pugalur",
+  "type": "Municipality",
+  "district": "Karur",
+  "taluks": [
+   "Karur",
+   "Manmangalam"
+  ],
+  "wards": 24
+ },
+ "300593": {
+  "name": "Kalakadu",
+  "type": "Municipality",
+  "district": "Tirunelveli",
+  "taluks": [
+   "Nanguneri"
+  ],
+  "wards": 21
+ },
+ "306237": {
+  "name": "Gandarvakottai",
+  "type": "Town Panchayat",
+  "district": null,
+  "taluks": [],
+  "wards": 0
+ }
+}

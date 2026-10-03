@@ -1108,3 +1108,150 @@ def test_no_table_no_neighbours(tmp_path):
     table = tmp_path / "n.json"
     table.write_text('{"Sriperumbudur": {"Kundrathur": 80, "Alandur": 3}}')
     assert load_taluk_neighbours(table) == {"Sriperumbudur": ("Alandur", "Kundrathur")}
+
+
+# ── Towns: the urban register ────────────────────────────────────────────────
+
+_TOWNS = {
+    "1": {"name": "Attur", "type": "Municipality", "district": "Salem",
+          "taluks": ["Attur"], "wards": 33},
+    "2": {"name": "Pernambut", "type": "Municipality", "district": "Vellore",
+          "taluks": ["Gudiyatham", "Pernambut"], "wards": 21},
+    "3": {"name": "Arani", "type": "Town Panchayat", "district": "Thiruvallur",
+          "taluks": ["Ponneri"], "wards": 15},
+    "4": {"name": "Arani", "type": "Municipality", "district": "Tiruvannamalai",
+          "taluks": ["Arani"], "wards": 18},
+    "5": {"name": "Natham", "type": "Town Panchayat", "district": "Dindigul",
+          "taluks": ["Natham"], "wards": 18},
+    "6": {"name": "Erode", "type": "Municipal Corporation", "district": "Erode",
+          "taluks": ["Erode"], "wards": 60},
+}
+
+
+def _town_gaz():
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(
+        districts=["Salem", "Vellore", "Tiruvallur", "Tiruvannamalai",
+                   "Dindigul", "Erode"],
+        taluks=[("Attur", "Salem"), ("Gangavalli", "Salem"),
+                ("Gudiyatham", "Vellore"), ("Pernambut", "Vellore"),
+                ("Ponneri", "Tiruvallur"), ("Arani", "Tiruvannamalai"),
+                ("Natham", "Dindigul"), ("Athoor", "Dindigul"),
+                ("Erode", "Erode"), ("Bhavani", "Erode")],
+        villages=[("Kothampadi", "Attur", "Salem"),
+                  ("Pillaiyar Natham", "Athoor", "Dindigul")])
+
+
+def _bare(district=None, status="absent"):
+    return {"district": district, "taluk": None, "village": None,
+            "village_parts": [], "village_status": status,
+            "village_source": None, "district_source": "district" if district else None}
+
+
+def test_a_town_called_a_town_gives_its_one_taluk():
+    from pipeline.place_resolution import place_level, town_place
+    out = town_place(_town_gaz(), _bare("Salem"), None, _TOWNS,
+                     "Old S.No. 486/5, Attur Town, Ward No. 4, Block 12")
+    assert (out["town"], out["town_type"], out["taluk"], out["taluk_source"]) == \
+        ("Attur", "Municipality", "Attur", "lgd-town")
+    assert place_level(out) == "town"
+
+
+def test_a_town_name_without_the_town_word_is_not_read():
+    """Most town names are also a taluk's or a district's, and every notice
+    names those for its registration office: "Attur Taluk", "Erode District"."""
+    from pipeline.place_resolution import town_place
+    gaz = _town_gaz()
+    for text in ("Kothampadi Village, Attur Taluk", "Erode Registration District",
+                 "Sub Registrar Office, Attur"):
+        res = _bare("Salem" if "Attur" in text else "Erode")
+        assert town_place(gaz, res, None, _TOWNS, text) == res
+
+
+def test_town_and_country_planning_is_not_a_town():
+    from pipeline.place_resolution import town_place
+    res = _bare("Erode")
+    assert town_place(_town_gaz(), res, None, _TOWNS,
+                      "layout approved by Erode Town and Country Planning") == res
+
+
+def test_a_village_named_after_a_town_is_not_the_town():
+    """normalize_place drops "village", so "Natham Village" folded to "Natham"."""
+    from pipeline.place_resolution import town_place
+    res = _bare("Dindigul")
+    assert town_place(_town_gaz(), res, None, _TOWNS,
+                      "Pillaiyar Natham Village Municipality Workers Colony") == res
+
+
+def test_a_town_outside_the_known_district_or_taluk_is_not_this_property():
+    from pipeline.place_resolution import town_place
+    gaz = _town_gaz()
+    res = _bare("Erode")
+    assert town_place(gaz, res, None, _TOWNS, "Attur Town") == res
+    in_taluk = {**_bare("Salem"), "taluk": "Gangavalli"}
+    assert town_place(gaz, in_taluk, None, _TOWNS, "Attur Town") == in_taluk
+
+
+def test_a_name_two_towns_share_needs_the_district():
+    from pipeline.place_resolution import town_place
+    gaz = _town_gaz()
+    res = _bare()
+    assert town_place(gaz, res, None, _TOWNS, "Arani Town") == res
+    out = town_place(gaz, _bare("Tiruvannamalai"), None, _TOWNS, "Arani Town")
+    assert (out["town"], out["taluk"]) == ("Arani", "Arani")
+
+
+def test_with_no_district_a_town_word_still_places_it():
+    from pipeline.place_resolution import town_place
+    out = town_place(_town_gaz(), _bare(), None, _TOWNS, "Attur Municipality limits")
+    assert (out["district"], out["taluk"], out["district_source"]) == \
+        ("Salem", "Attur", "lgd-town")
+
+
+def test_a_town_across_two_taluks_labels_but_does_not_choose():
+    from pipeline.place_resolution import place_level, town_place
+    out = town_place(_town_gaz(), _bare("Vellore"), None, _TOWNS, "Pernambut Town")
+    assert out["town"] == "Pernambut" and out["taluk"] is None
+    assert "taluk_source" not in out and place_level(out) == "town"
+
+
+def test_two_towns_named_is_two_answers():
+    from pipeline.place_resolution import town_place
+    towns = {**_TOWNS, "7": {"name": "Gangavalli", "type": "Town Panchayat",
+                             "district": "Salem", "taluks": ["Gangavalli"]}}
+    res = _bare("Salem")
+    assert town_place(_town_gaz(), res, None, towns,
+                      "Attur Town", "Gangavalli Town Panchayat") == res
+
+
+def test_the_village_is_looked_for_inside_the_town_taluk():
+    from pipeline.place_resolution import town_place
+    res = _bare("Salem", status="no-parent-taluk")
+    out = town_place(_town_gaz(), res, "Kothampadi", _TOWNS, "Kothampadi, Attur Town")
+    assert (out["village"], out["village_source"], out["taluk"]) == \
+        ("Kothampadi", "lgd-town", "Attur")
+
+
+def test_a_placed_village_or_an_out_of_state_property_is_left_alone():
+    from pipeline.place_resolution import OUTSIDE_TAMIL_NADU, town_place
+    gaz = _town_gaz()
+    placed = {**_bare("Salem"), "taluk": "Attur", "village": "Kothampadi",
+              "village_status": "resolved"}
+    assert town_place(gaz, placed, None, _TOWNS, "Attur Town") == placed
+    away = _bare(status=OUTSIDE_TAMIL_NADU)
+    assert town_place(gaz, away, None, _TOWNS, "Attur Town") == away
+    assert town_place(gaz, _bare("Salem"), None, {}, "Attur Town") == _bare("Salem")
+
+
+def test_place_level_is_the_finest_place_known():
+    from pipeline.place_resolution import place_level
+    assert place_level({"village_parts": ["Pammal - I", "Pammal - II"]}) == "village"
+    assert place_level({"town": "Attur", "taluk": "Attur"}) == "town"
+    assert place_level({"taluk": "Attur", "district": "Salem"}) == "taluk"
+    assert place_level({"district": "Salem"}) == "district"
+    assert place_level({}) is None
+
+
+def test_no_town_register_no_towns(tmp_path):
+    from pipeline.place_resolution import load_towns
+    assert load_towns(tmp_path / "missing.json") == {}
