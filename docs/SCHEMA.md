@@ -210,6 +210,44 @@ portal city stays a witness). Checked on placed lots with the taluk hidden:
 1,029 right, 10 wrong. Re-learn after new notices; the table never learns
 from its own answers.
 
+A **PIN code** is a third hint (`pin-taluk`). The same script learns
+`pipeline/lookups/pin_taluks.json` — a PIN names a taluk when ≥ 3 placed lots
+give it and ≥ 90% of them sit in that taluk (61 PINs). A lot's PIN is the one
+its own property text gives (`promote_extractions.lot_pin`); a listing's, the
+one its notice description gives (never the portal's); two PINs give none.
+Checked the same way: 253 right, 0 wrong.
+
+Last, a notice with a district but no usable taluk is placed by the **one
+village of the district that sounds like it** (`district-sound`,
+`Gazetteer.village_by_district_sound`): the same `sound_key`, and the same
+part, number, initials and qualifier (`village_shape`), so "Kengarai-2" never
+lands on "Kengarai 1" nor "Badur" on "Badur R.F."; two that sound alike
+cancel out. Checked on placed lots with the taluk hidden: 424 right, 14
+wrong. Both run after the human verdicts and the SRO/town hints.
+
+A village field holding more than a name — "Kanthalur and Pulipakkam",
+"Ambur Municipal Town", "Mathigiri (Kurubatti Ward)" — is split into its
+pieces first (`village_pieces_place`, source `village-pieces`): the words that
+say what kind of place it is (town, municipal, natham, group) are dropped,
+streets, wards and colonies are left out, and "A hamlet of B" is B. Every
+piece must then be found inside the notice's own taluk and all must name the
+same one village; two villages, or a piece that matches nothing, place none.
+"X Town" lands on the revenue village named X. 15 lots and 15 listings on
+the live corpus, each checked by hand.
+
+Last of all, a village not in the taluk the notice names (`unmatched`) is
+looked for in its **neighbouring taluks** (`neighbour_taluk_place`, source
+`neighbour-taluk`) — the taluks it was split from or into in 2019–2021
+(Kundrathur out of Sriperumbudur, Vandalur and Thiruporur out of
+Chengalpattu), where notices still file it. `scripts/learn_sro_taluks.py`
+learns the pairs into `pipeline/lookups/taluk_neighbours.json`: two taluks of
+one district are neighbours when ≥ 3 placed lots name one and sit in the other
+(35 pairs). The village must be found in exactly one neighbour by the ordinary
+rules; a census-town row ("Padappai (Ct)", which the register holds beside the
+revenue village Patapai) on either side refuses it. Checked on placed lots,
+each named under a neighbour instead of its own taluk: of 537 the rule applies
+to, 423 right, 0 wrong.
+
 ### The village review queue: one verdict per spelling in a taluk
 
 What the rules cannot place stays `unmatched` on the listing

@@ -1,0 +1,194 @@
+{
+ "Alathur": {
+  "Kunnam": 5
+ },
+ "Ambattur": {
+  "Madhavaram": 12,
+  "Maduravoyal": 17,
+  "Thiruvottiyur": 7
+ },
+ "Ambur": {
+  "Vaniyambadi": 4
+ },
+ "Anaimalai": {
+  "Pollachi": 3
+ },
+ "Annur": {
+  "Coimbatore North": 9
+ },
+ "Anthiyur": {
+  "Bhavani": 4
+ },
+ "Arakkonam": {
+  "Nemili": 3,
+  "Sholinghur": 6
+ },
+ "Avadi": {
+  "Poonamallee": 12
+ },
+ "Ayanavaram": {
+  "Kolathur": 9,
+  "Mylapore": 3
+ },
+ "Bargur": {
+  "Krishnagiri": 3
+ },
+ "Bhavani": {
+  "Anthiyur": 4
+ },
+ "Chengalpattu": {
+  "Maduranthagam": 5,
+  "Thiruporur": 65,
+  "Vandalur": 68
+ },
+ "Coimbatore North": {
+  "Annur": 9
+ },
+ "Coimbatore south": {
+  "Perur": 5
+ },
+ "Guindy": {
+  "Mambalam": 3,
+  "Velacheri": 8
+ },
+ "Gujiliamparai": {
+  "Vedasandur": 5
+ },
+ "Hosur": {
+  "Krishnagiri": 3
+ },
+ "Illupur": {
+  "Viralimalai": 3
+ },
+ "K.V. Kuppam": {
+  "Katpadi": 3
+ },
+ "Kadayampatti": {
+  "Omalur": 7
+ },
+ "Kalkulam": {
+  "Thiruvattar": 3
+ },
+ "Karimangalam": {
+  "Palacode": 5
+ },
+ "Katpadi": {
+  "K.V. Kuppam": 3
+ },
+ "Kolathur": {
+  "Ayanavaram": 9
+ },
+ "Krishnagiri": {
+  "Bargur": 3,
+  "Hosur": 3
+ },
+ "Kumarapalayam": {
+  "Tiruchengode": 4
+ },
+ "Kundrathur": {
+  "Sriperumbudur": 80
+ },
+ "Kunnam": {
+  "Alathur": 5
+ },
+ "Madhavaram": {
+  "Ambattur": 12
+ },
+ "Madurai South": {
+  "Madurai West": 4
+ },
+ "Madurai West": {
+  "Madurai South": 4
+ },
+ "Maduranthagam": {
+  "Chengalpattu": 5
+ },
+ "Maduravoyal": {
+  "Ambattur": 17
+ },
+ "Mambalam": {
+  "Guindy": 3
+ },
+ "Mohanur": {
+  "Namakkal": 5
+ },
+ "Muthpettai": {
+  "Thiruthuraipoondi": 5
+ },
+ "Mylapore": {
+  "Ayanavaram": 3
+ },
+ "Namakkal": {
+  "Mohanur": 5
+ },
+ "Nemili": {
+  "Arakkonam": 3
+ },
+ "Omalur": {
+  "Kadayampatti": 7
+ },
+ "Palacode": {
+  "Karimangalam": 5
+ },
+ "Perur": {
+  "Coimbatore south": 5
+ },
+ "Pollachi": {
+  "Anaimalai": 3
+ },
+ "Poonamallee": {
+  "Avadi": 12
+ },
+ "Salem": {
+  "Salem South": 4,
+  "Salem West": 4
+ },
+ "Salem South": {
+  "Salem": 4
+ },
+ "Salem West": {
+  "Salem": 4
+ },
+ "Sholinghur": {
+  "Arakkonam": 6
+ },
+ "Sivakasi": {
+  "Vembakkottai": 3
+ },
+ "Sriperumbudur": {
+  "Kundrathur": 80
+ },
+ "Thiruporur": {
+  "Chengalpattu": 65
+ },
+ "Thiruthuraipoondi": {
+  "Muthpettai": 5
+ },
+ "Thiruvattar": {
+  "Kalkulam": 3
+ },
+ "Thiruvottiyur": {
+  "Ambattur": 7
+ },
+ "Tiruchengode": {
+  "Kumarapalayam": 4
+ },
+ "Vandalur": {
+  "Chengalpattu": 68
+ },
+ "Vaniyambadi": {
+  "Ambur": 4
+ },
+ "Vedasandur": {
+  "Gujiliamparai": 5
+ },
+ "Velacheri": {
+  "Guindy": 8
+ },
+ "Vembakkottai": {
+  "Sivakasi": 3
+ },
+ "Viralimalai": {
+  "Illupur": 3
+ }
+}

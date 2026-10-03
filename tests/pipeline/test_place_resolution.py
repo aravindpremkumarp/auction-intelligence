@@ -893,3 +893,218 @@ def test_no_table_no_sro_hint(tmp_path):
     res = resolve_place(gaz, district="Chengalpattu", village="Kattankalathur")
     assert taluk_hint_place(gaz, res, "Kattankalathur", sro="Chengalpet",
                             sro_taluks={}) == res
+
+
+# ── One village of the district by sound; the PIN code's taluk ───────────────
+
+def _sound_district_gaz():
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(
+        districts=["Pudukkottai"],
+        taluks=[("Gandarvakottai", "Pudukkottai"), ("Alangudi", "Pudukkottai")],
+        villages=[("Meikudipatti", "Gandarvakottai", "Pudukkottai"),
+                  ("Kengarai 1", "Gandarvakottai", "Pudukkottai"),
+                  ("Badur R.F.", "Alangudi", "Pudukkottai"),
+                  ("Nallur", "Gandarvakottai", "Pudukkottai"),
+                  ("Nalloor", "Alangudi", "Pudukkottai"),
+                  ("Arasoor", "Alangudi", "Pudukkottai")],
+        village_copies=[("Arasur", "Alangudi", "Arasoor")])
+
+
+def test_a_village_the_district_holds_once_by_sound_is_found():
+    gaz = _sound_district_gaz()
+    assert gaz.village_by_district_sound("Meykudipatti", "Pudukkottai") == \
+        ("Meikudipatti", "Gandarvakottai")
+    # a copy's spelling sounds for its original
+    assert gaz.village_by_district_sound("Arazur", "Pudukkottai") == ("Arasoor", "Alangudi")
+
+
+def test_the_sound_rule_refuses_twins_numbers_forests_and_exact_names():
+    gaz = _sound_district_gaz()
+    # "Nallur" / "Nalloor" sound alike in two taluks: no guess
+    assert gaz.village_by_district_sound("Nalur", "Pudukkottai") is None
+    # another number is another village
+    assert gaz.village_by_district_sound("Kengarai-2", "Pudukkottai") is None
+    # the village is not its forest
+    assert gaz.village_by_district_sound("Baddur", "Pudukkottai") is None
+    # an exact name belongs to the exact district search
+    assert gaz.village_by_district_sound("Meikudipatti", "Pudukkottai") is None
+    assert gaz.village_by_district_sound("Meykudipatti", None) is None
+
+
+def test_the_sound_rule_only_places_a_notice_that_gave_no_taluk():
+    from pipeline.place_resolution import district_sound_place, resolve_place
+    gaz = _sound_district_gaz()
+    res = resolve_place(gaz, district="Pudukkottai", village="Meykudipatti")
+    assert res["village_status"] == "no-parent-taluk"
+    out = district_sound_place(gaz, res, "Meykudipatti")
+    assert (out["village"], out["taluk"], out["village_status"], out["village_source"]) == \
+        ("Meikudipatti", "Gandarvakottai", "resolved", "district-sound")
+    # a stated taluk that does not hold it is a different question
+    named = resolve_place(gaz, district="Pudukkottai", taluk="Alangudi", village="Meykudipatti")
+    assert district_sound_place(gaz, named, "Meykudipatti") == named
+    # no district, nowhere to look
+    bare = resolve_place(gaz, village="Meykudipatti")
+    assert district_sound_place(gaz, bare, "Meykudipatti") == bare
+
+
+def test_the_property_pin_is_the_one_its_text_gives():
+    from pipeline.place_resolution import property_pin
+    assert property_pin("Plot 12, Ashok Nagar, Chennai-600083") == "600083"
+    assert property_pin("Madambakkam, Chennai 600 126", None) == "600126"
+    assert property_pin("near bus stand", "Tambaram") is None
+    # two PINs: a neighbour's or an office's is in there; neither is trusted
+    assert property_pin("Chennai-600083", "office at Chennai-600001") is None
+    # not a Tamil Nadu PIN, and not a survey or phone number
+    assert property_pin("Bengaluru 560001, S.No. 612/345, ph 9600012345") is None
+
+
+def test_the_pin_names_the_taluk_to_look_in():
+    res, out = _hinted("Kattankalathur", sro=None)
+    from pipeline.place_resolution import taluk_hint_place
+    out = taluk_hint_place(_hint_gaz(), res, "Kattankalathur", pin="603203",
+                           pin_taluks={"603203": "Chengalpattu"})
+    assert (out["village"], out["taluk"], out["village_source"]) == \
+        ("Kattankulathur", "Chengalpattu", "pin-taluk")
+    # a PIN and an SRO that disagree cancel out
+    both = taluk_hint_place(_hint_gaz(), *_nallur_no_taluk(), sro="Chengalpet",
+                            sro_taluks=_sros(), pin="600073",
+                            pin_taluks={"600073": "Tambaram"})
+    assert both["village"] is None
+
+
+def _nallur_no_taluk():
+    from pipeline.place_resolution import resolve_place
+    return resolve_place(_hint_gaz(), district="Chengalpattu", village="Nallur"), "Nallur"
+
+
+def test_a_village_shape_names_what_makes_two_names_two_places():
+    from pipeline.place_resolution import village_shape
+    assert village_shape("Kengarai 1") != village_shape("Kengarai-2")
+    assert village_shape("Badur R.F.") != village_shape("Badur")
+    assert village_shape("V. Pudur") != village_shape("Pudur")
+    assert village_shape("Padappai (Ct)") != village_shape("Padappai")
+    assert village_shape("Meykudipatti") == village_shape("Meikudipatti")
+
+
+# ── A village field holding more than a name; neighbouring taluks ────────────
+
+def test_a_village_field_is_split_into_the_names_it_holds():
+    from pipeline.place_resolution import village_pieces
+    assert village_pieces("Kanthalur and Pulipakkam") == ["Kanthalur", "Pulipakkam"]
+    assert village_pieces("Ambur Municipal Town") == ["Ambur"]
+    assert village_pieces("Kethunaickenpattipudhur Natham") == ["Kethunaickenpattipudhur"]
+    # streets, wards and colonies sit inside a village; they are not one
+    assert village_pieces("Mathigiri (Kurubatti Ward)") == ["Mathigiri"]
+    assert village_pieces("Colachel Revenue Village (Now simon colony)") == \
+        ["Colachel Revenue Village"]
+    # "A hamlet of B" is B
+    assert village_pieces("Kodur Village hamlet of Thadaperumbakkam Village") == \
+        ["Thadaperumbakkam Village"]
+    # one plain name is left to resolve_place, which has already tried it
+    assert village_pieces("Pulipakkam") == []
+    assert village_pieces("Pulipakkam Village") == []
+    assert village_pieces(None) == []
+
+
+def _pieces_gaz():
+    return Gazetteer(districts=["Chengalpattu"], taluks=[("Chengalpattu", "Chengalpattu")],
+                     villages=[("Kanthalur", "Chengalpattu", "Chengalpattu"),
+                               ("Pulipakkam", "Chengalpattu", "Chengalpattu")])
+
+
+def test_every_piece_must_name_the_same_one_village():
+    from pipeline.place_resolution import village_pieces_place
+    gaz = _pieces_gaz()
+
+    def place(village):
+        res = resolve_place(gaz, taluk="Chengalpattu", village=village)
+        return village_pieces_place(gaz, res, village)
+
+    out = place("Pulipakkam Village Natham")
+    assert (out["village"], out["village_status"], out["village_source"]) == \
+        ("Pulipakkam", "resolved", "village-pieces")
+    assert place("Pulipakkam (Anna Nagar)")["village"] == "Pulipakkam"
+    # two villages are two answers
+    assert place("Kanthalur and Pulipakkam")["village"] is None
+    # a piece that matches nothing may be the real village, misspelt
+    assert place("Pulipakkam, Sporal")["village"] is None
+    # only a village the notice's own taluk does not hold as written
+    bare = resolve_place(gaz, district="Chengalpattu", village="Pulipakkam Natham")
+    assert village_pieces_place(gaz, bare, "Pulipakkam Natham") == bare
+
+
+def _neighbour_gaz():
+    return Gazetteer(
+        districts=["Kancheepuram", "Chengalpattu"],
+        taluks=[("Sriperumbudur", "Kancheepuram"), ("Kundrathur", "Kancheepuram"),
+                ("Walajabad", "Kancheepuram"), ("Vandalur", "Chengalpattu")],
+        villages=[("Irungattukottai", "Sriperumbudur", "Kancheepuram"),
+                  ("Varatharajapuram", "Kundrathur", "Kancheepuram"),
+                  ("Patapai", "Kundrathur", "Kancheepuram"),
+                  ("Padappai (Ct)", "Kundrathur", "Kancheepuram"),
+                  ("Madambakkam (Ct)", "Kundrathur", "Kancheepuram"),
+                  ("Nallur", "Kundrathur", "Kancheepuram"),
+                  ("Nallur", "Walajabad", "Kancheepuram"),
+                  ("Adhanur", "Vandalur", "Chengalpattu")],
+        village_names_ta=[("Patapai", "Kundrathur", "படப்பை")])
+
+
+_NEIGHBOURS = {"Sriperumbudur": ("Kundrathur", "Vandalur", "Walajabad"),
+               "Kundrathur": ("Sriperumbudur",), "Walajabad": ("Sriperumbudur",),
+               "Vandalur": ("Sriperumbudur",)}
+
+
+def _from_sriperumbudur(village):
+    from pipeline.place_resolution import neighbour_taluk_place
+    gaz = _neighbour_gaz()
+    res = resolve_place(gaz, taluk="Sriperumbudur", village=village)
+    return res, neighbour_taluk_place(gaz, res, village, _NEIGHBOURS)
+
+
+def test_a_village_filed_under_the_taluk_it_was_split_from_is_found_next_door():
+    res, out = _from_sriperumbudur("Varadarajapuram")
+    assert res["village_status"] == "unmatched"
+    assert (out["village"], out["taluk"], out["district"], out["village_status"],
+            out["village_source"]) == \
+        ("Varatharajapuram", "Kundrathur", "Kancheepuram", "resolved", "neighbour-taluk")
+
+
+def test_the_neighbour_rule_refuses_ties_census_towns_and_other_districts():
+    # two neighbours both hold a Nallur
+    assert _from_sriperumbudur("Nallur")[1]["village"] is None
+    # "Padappai" sounds like Patapai, but the taluk also holds "Padappai (Ct)"
+    res, out = _from_sriperumbudur("Padappai")
+    assert out == res
+    # the one match a census-town row
+    res, out = _from_sriperumbudur("Madambakam")
+    assert res["village_status"] == "unmatched" and out == res
+    # a neighbour in another district is not this rule's
+    assert _from_sriperumbudur("Adhanur")[1]["village"] is None
+
+
+def test_the_neighbour_rule_only_places_an_unmatched_village():
+    from pipeline.place_resolution import neighbour_taluk_place
+    gaz = _neighbour_gaz()
+    placed = resolve_place(gaz, taluk="Sriperumbudur", village="Irungattukottai")
+    assert neighbour_taluk_place(gaz, placed, "Irungattukottai", _NEIGHBOURS) == placed
+    bare = resolve_place(gaz, district="Kancheepuram", village="Varadarajapuram")
+    assert neighbour_taluk_place(gaz, bare, "Varadarajapuram", _NEIGHBOURS) == bare
+    res = resolve_place(gaz, taluk="Sriperumbudur", village="Varadarajapuram")
+    assert neighbour_taluk_place(gaz, res, "Varadarajapuram", {}) == res
+
+
+def test_a_census_town_twin_is_the_ct_row_or_its_plain_name():
+    gaz = _neighbour_gaz()
+    assert gaz.census_town_twin("Padappai (Ct)", "Kundrathur")
+    assert gaz.census_town_twin("padappai", "Kundrathur")
+    assert not gaz.census_town_twin("Patapai", "Kundrathur")
+    assert not gaz.census_town_twin("Padappai", "Walajabad")
+
+
+def test_no_table_no_neighbours(tmp_path):
+    from pipeline.place_resolution import load_taluk_neighbours
+    assert load_taluk_neighbours(tmp_path / "missing.json") == {}
+    table = tmp_path / "n.json"
+    table.write_text('{"Sriperumbudur": {"Kundrathur": 80, "Alandur": 3}}')
+    assert load_taluk_neighbours(table) == {"Sriperumbudur": ("Alandur", "Kundrathur")}
