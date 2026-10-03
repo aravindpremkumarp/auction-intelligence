@@ -1255,3 +1255,17 @@ def test_place_level_is_the_finest_place_known():
 def test_no_town_register_no_towns(tmp_path):
     from pipeline.place_resolution import load_towns
     assert load_towns(tmp_path / "missing.json") == {}
+
+
+def test_the_two_pin_tables_merge_and_a_disagreement_drops_the_pin(tmp_path):
+    from pipeline.place_resolution import load_pin_taluks
+    learned, posted = tmp_path / "learned.json", tmp_path / "post.json"
+    learned.write_text('{"603203": {"taluk": "Chengalpattu"}, '
+                       '"602025": {"taluk": "Sriperumbudur"}}')
+    posted.write_text('{"605701": {"taluk": "Vridhachalam"}, '
+                      '"603203": {"taluk": "Chengalpattu"}, '
+                      '"602025": {"taluk": "Tiruvallur"}}')
+    assert load_pin_taluks(learned, india_post=posted) == {
+        "603203": "Chengalpattu", "605701": "Vridhachalam"}
+    assert load_pin_taluks(tmp_path / "none.json",
+                           india_post=tmp_path / "none2.json") == {}

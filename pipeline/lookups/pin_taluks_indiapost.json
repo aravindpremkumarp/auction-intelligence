@@ -1,0 +1,3176 @@
+{
+ "600045": {
+  "taluk": "Tambaram",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "600053": {
+  "taluk": "Ambattur",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "600056": {
+  "taluk": "Poonamallee",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "600061": {
+  "taluk": "Alandur",
+  "offices": 2,
+  "voting": 2,
+  "share": 1.0
+ },
+ "600067": {
+  "taluk": "Ponneri",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "600127": {
+  "taluk": "Vandalur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "601101": {
+  "taluk": "Uthukottai",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "601202": {
+  "taluk": "Gummidipoondi",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "601203": {
+  "taluk": "Ponneri",
+  "offices": 10,
+  "voting": 3,
+  "share": 1.0
+ },
+ "601204": {
+  "taluk": "Ponneri",
+  "offices": 10,
+  "voting": 5,
+  "share": 0.8
+ },
+ "601301": {
+  "taluk": "Kundrathur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "602002": {
+  "taluk": "Tiruvallur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "602021": {
+  "taluk": "Tiruvallur",
+  "offices": 7,
+  "voting": 5,
+  "share": 1.0
+ },
+ "602025": {
+  "taluk": "Tiruvallur",
+  "offices": 7,
+  "voting": 5,
+  "share": 0.8
+ },
+ "602026": {
+  "taluk": "Uthukottai",
+  "offices": 10,
+  "voting": 3,
+  "share": 1.0
+ },
+ "603107": {
+  "taluk": "Uthiramerur",
+  "offices": 11,
+  "voting": 3,
+  "share": 1.0
+ },
+ "603109": {
+  "taluk": "Tirukalukundram",
+  "offices": 12,
+  "voting": 2,
+  "share": 1.0
+ },
+ "603110": {
+  "taluk": "Thiruporur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "603204": {
+  "taluk": "Chengalpattu",
+  "offices": 10,
+  "voting": 2,
+  "share": 1.0
+ },
+ "603303": {
+  "taluk": "Maduranthagam",
+  "offices": 11,
+  "voting": 3,
+  "share": 1.0
+ },
+ "603306": {
+  "taluk": "Maduranthagam",
+  "offices": 11,
+  "voting": 2,
+  "share": 1.0
+ },
+ "603307": {
+  "taluk": "Maduranthagam",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "603308": {
+  "taluk": "Maduranthagam",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "603309": {
+  "taluk": "Cheyyur",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "603401": {
+  "taluk": "Cheyyur",
+  "offices": 6,
+  "voting": 4,
+  "share": 1.0
+ },
+ "604101": {
+  "taluk": "Tindivanamm",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "604152": {
+  "taluk": "Gingee",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "604154": {
+  "taluk": "Vanur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "604201": {
+  "taluk": "Melmalaiyanoor",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "604204": {
+  "taluk": "Melmalaiyanoor",
+  "offices": 12,
+  "voting": 5,
+  "share": 1.0
+ },
+ "604205": {
+  "taluk": "Gingee",
+  "offices": 9,
+  "voting": 5,
+  "share": 0.8
+ },
+ "604207": {
+  "taluk": "Tindivanamm",
+  "offices": 12,
+  "voting": 6,
+  "share": 0.83
+ },
+ "604301": {
+  "taluk": "Marakkanam",
+  "offices": 12,
+  "voting": 7,
+  "share": 0.86
+ },
+ "604302": {
+  "taluk": "Tindivanamm",
+  "offices": 12,
+  "voting": 6,
+  "share": 1.0
+ },
+ "604401": {
+  "taluk": "Cheyyar",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "604402": {
+  "taluk": "Vembakkam",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "604403": {
+  "taluk": "Vandavasi",
+  "offices": 10,
+  "voting": 5,
+  "share": 0.8
+ },
+ "604405": {
+  "taluk": "Vandavasi",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "604406": {
+  "taluk": "Vandavasi",
+  "offices": 12,
+  "voting": 5,
+  "share": 1.0
+ },
+ "604409": {
+  "taluk": "Cheyyar",
+  "offices": 7,
+  "voting": 5,
+  "share": 0.8
+ },
+ "604410": {
+  "taluk": "Vembakkam",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "604501": {
+  "taluk": "Vandavasi",
+  "offices": 12,
+  "voting": 6,
+  "share": 1.0
+ },
+ "604502": {
+  "taluk": "Vandavasi",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "604601": {
+  "taluk": "Kilpennathur",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "605103": {
+  "taluk": "Villupuram",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "605105": {
+  "taluk": "Villupuram",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "605107": {
+  "taluk": "Vikravandi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "605108": {
+  "taluk": "Villupuram",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "605109": {
+  "taluk": "Vanur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "605202": {
+  "taluk": "Vikravandi",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "605203": {
+  "taluk": "Vikravandi",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "605301": {
+  "taluk": "Villupuram",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "605401": {
+  "taluk": "Villupuram",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "605702": {
+  "taluk": "Vanapuram",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "605751": {
+  "taluk": "Tirukkoilur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "605752": {
+  "taluk": "Kandacheepuram",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "605754": {
+  "taluk": "Tirukkoilur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "605766": {
+  "taluk": "Tirukkoilur",
+  "offices": 9,
+  "voting": 5,
+  "share": 1.0
+ },
+ "605801": {
+  "taluk": "Vanapuram",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "605802": {
+  "taluk": "Vanapuram",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606003": {
+  "taluk": "Vridhachalam",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "606104": {
+  "taluk": "Vridhachalam",
+  "offices": 12,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606105": {
+  "taluk": "Titagudi",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606106": {
+  "taluk": "Titagudi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606107": {
+  "taluk": "Ulundurpet",
+  "offices": 13,
+  "voting": 5,
+  "share": 1.0
+ },
+ "606109": {
+  "taluk": "Veppur",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606111": {
+  "taluk": "Titagudi",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606201": {
+  "taluk": "Chinnasalem",
+  "offices": 14,
+  "voting": 6,
+  "share": 0.83
+ },
+ "606207": {
+  "taluk": "Chinnasalem",
+  "offices": 13,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606209": {
+  "taluk": "Kalvarayan Hills",
+  "offices": 13,
+  "voting": 4,
+  "share": 1.0
+ },
+ "606301": {
+  "taluk": "Chinnasalem",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "606303": {
+  "taluk": "Titagudi",
+  "offices": 9,
+  "voting": 5,
+  "share": 0.8
+ },
+ "606304": {
+  "taluk": "Veppur",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606601": {
+  "taluk": "Tiruvannamalai",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606603": {
+  "taluk": "Tiruvannamalai",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606604": {
+  "taluk": "Tiruvannamalai",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606701": {
+  "taluk": "Chengam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606702": {
+  "taluk": "Chengam",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606703": {
+  "taluk": "Chengam",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606704": {
+  "taluk": "Chengam",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "606705": {
+  "taluk": "Chengam",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606707": {
+  "taluk": "Thandarampattu",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "606708": {
+  "taluk": "Thandarampattu",
+  "offices": 14,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606752": {
+  "taluk": "Tiruvannamalai",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "606803": {
+  "taluk": "Polur",
+  "offices": 16,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606806": {
+  "taluk": "Tiruvannamalai",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "606808": {
+  "taluk": "Tiruvannamalai",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606902": {
+  "taluk": "Chetpet",
+  "offices": 10,
+  "voting": 3,
+  "share": 1.0
+ },
+ "606907": {
+  "taluk": "Polur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "607003": {
+  "taluk": "Cuddalore",
+  "offices": 13,
+  "voting": 3,
+  "share": 1.0
+ },
+ "607006": {
+  "taluk": "Cuddalore",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "607106": {
+  "taluk": "Panruti",
+  "offices": 14,
+  "voting": 5,
+  "share": 1.0
+ },
+ "607107": {
+  "taluk": "Thiruvennainallur",
+  "offices": 8,
+  "voting": 5,
+  "share": 1.0
+ },
+ "607108": {
+  "taluk": "Panruti",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "607109": {
+  "taluk": "Cuddalore",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "607202": {
+  "taluk": "Ulundurpet",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "607204": {
+  "taluk": "Ulundurpet",
+  "offices": 11,
+  "voting": 2,
+  "share": 1.0
+ },
+ "607205": {
+  "taluk": "Panruti",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "607209": {
+  "taluk": "Thiruvennainallur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "607301": {
+  "taluk": "Kurinjipadi",
+  "offices": 14,
+  "voting": 2,
+  "share": 1.0
+ },
+ "607302": {
+  "taluk": "Kurinjipadi",
+  "offices": 11,
+  "voting": 4,
+  "share": 1.0
+ },
+ "607303": {
+  "taluk": "Kurinjipadi",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "607804": {
+  "taluk": "Vridhachalam",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "608002": {
+  "taluk": "Chidambaram",
+  "offices": 11,
+  "voting": 5,
+  "share": 1.0
+ },
+ "608201": {
+  "taluk": "Chidambaram",
+  "offices": 9,
+  "voting": 5,
+  "share": 0.8
+ },
+ "608302": {
+  "taluk": "Kattumannarkoil",
+  "offices": 11,
+  "voting": 5,
+  "share": 0.8
+ },
+ "608304": {
+  "taluk": "Kattumannarkoil",
+  "offices": 8,
+  "voting": 5,
+  "share": 0.8
+ },
+ "608501": {
+  "taluk": "Bhuvanagiri",
+  "offices": 11,
+  "voting": 2,
+  "share": 1.0
+ },
+ "608502": {
+  "taluk": "Bhuvanagiri",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "608602": {
+  "taluk": "Chidambaram",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "608703": {
+  "taluk": "Srimushnam",
+  "offices": 13,
+  "voting": 5,
+  "share": 0.8
+ },
+ "608704": {
+  "taluk": "Bhuvanagiri",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "609106": {
+  "taluk": "Sirkazhi",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "609109": {
+  "taluk": "Sirkazhi",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "609112": {
+  "taluk": "Sirkazhi",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "609114": {
+  "taluk": "Sirkazhi",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "609301": {
+  "taluk": "Tharangambadi",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "609312": {
+  "taluk": "Tharangambadi",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "609403": {
+  "taluk": "Nannilam",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "609501": {
+  "taluk": "Kudavasal",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "609608": {
+  "taluk": "Nannilam",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "609702": {
+  "taluk": "Nagapattinam",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "609704": {
+  "taluk": "Nagapattinam",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "610101": {
+  "taluk": "Nagapattinam",
+  "offices": 11,
+  "voting": 5,
+  "share": 0.8
+ },
+ "610105": {
+  "taluk": "Nannilam",
+  "offices": 10,
+  "voting": 5,
+  "share": 1.0
+ },
+ "610106": {
+  "taluk": "Thiruvarur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "610204": {
+  "taluk": "Thirukkuvalai",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "610206": {
+  "taluk": "Koothanallur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "611102": {
+  "taluk": "Nagapattinam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "611103": {
+  "taluk": "Kilvelur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "612102": {
+  "taluk": "Thiruvidaimarudur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "612301": {
+  "taluk": "Papanasam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "612303": {
+  "taluk": "Kumbakonam",
+  "offices": 3,
+  "voting": 3,
+  "share": 1.0
+ },
+ "612501": {
+  "taluk": "Kumbakonam",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "612504": {
+  "taluk": "Thiruvidaimarudur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "612604": {
+  "taluk": "Kudavasal",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "612605": {
+  "taluk": "Kumbakonam",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "612802": {
+  "taluk": "Valangaiman",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "613006": {
+  "taluk": "Thanjavur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "613102": {
+  "taluk": "Budalur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "613301": {
+  "taluk": "Gandarvakottai",
+  "offices": 14,
+  "voting": 5,
+  "share": 1.0
+ },
+ "613403": {
+  "taluk": "Thanjavur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "613502": {
+  "taluk": "Papanasam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "613504": {
+  "taluk": "Papanasam",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "613602": {
+  "taluk": "Budalur",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "613704": {
+  "taluk": "Thiruvarur",
+  "offices": 2,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614014": {
+  "taluk": "Mannargudi",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "614016": {
+  "taluk": "Mannargudi",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614018": {
+  "taluk": "Mannargudi",
+  "offices": 11,
+  "voting": 4,
+  "share": 1.0
+ },
+ "614020": {
+  "taluk": "Mannargudi",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614101": {
+  "taluk": "Koothanallur",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614103": {
+  "taluk": "Koothanallur",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614202": {
+  "taluk": "Papanasam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614203": {
+  "taluk": "Papanasam",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "614302": {
+  "taluk": "Papanasam",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614303": {
+  "taluk": "Papanasam",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614401": {
+  "taluk": "Papanasam",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614403": {
+  "taluk": "Needamangalam",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "614602": {
+  "taluk": "Pattukottai",
+  "offices": 16,
+  "voting": 5,
+  "share": 0.8
+ },
+ "614612": {
+  "taluk": "Peravurani",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "614613": {
+  "taluk": "Pattukottai",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "614614": {
+  "taluk": "Thiruvonam",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "614615": {
+  "taluk": "Pattukottai",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614616": {
+  "taluk": "Aranthangi",
+  "offices": 17,
+  "voting": 9,
+  "share": 0.89
+ },
+ "614622": {
+  "taluk": "Aranthangi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614623": {
+  "taluk": "Peravurani",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "614624": {
+  "taluk": "Aranthangi",
+  "offices": 14,
+  "voting": 5,
+  "share": 1.0
+ },
+ "614701": {
+  "taluk": "Pattukottai",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "614703": {
+  "taluk": "Thiruthuraipoondi",
+  "offices": 11,
+  "voting": 7,
+  "share": 0.86
+ },
+ "614706": {
+  "taluk": "Muthpettai",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614707": {
+  "taluk": "Vedaranyam",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614715": {
+  "taluk": "Thiruthuraipoondi",
+  "offices": 10,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614717": {
+  "taluk": "Mannargudi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614723": {
+  "taluk": "Pattukottai",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614802": {
+  "taluk": "Peravurani",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614803": {
+  "taluk": "Pattukottai",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614804": {
+  "taluk": "Peravurani",
+  "offices": 12,
+  "voting": 2,
+  "share": 1.0
+ },
+ "614809": {
+  "taluk": "Vedaranyam",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "614903": {
+  "taluk": "Pattukottai",
+  "offices": 12,
+  "voting": 9,
+  "share": 0.89
+ },
+ "620011": {
+  "taluk": "Thiruverumbur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "620013": {
+  "taluk": "Thiruverumbur",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "621005": {
+  "taluk": "Manachanallur",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "621007": {
+  "taluk": "Thuraiyur",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621117": {
+  "taluk": "Veppanthattai",
+  "offices": 11,
+  "voting": 4,
+  "share": 1.0
+ },
+ "621118": {
+  "taluk": "Alathur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621205": {
+  "taluk": "Musiri",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621207": {
+  "taluk": "Thottiam",
+  "offices": 11,
+  "voting": 5,
+  "share": 1.0
+ },
+ "621209": {
+  "taluk": "Thottiam",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621214": {
+  "taluk": "Musiri",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "621218": {
+  "taluk": "Lalgudi",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621316": {
+  "taluk": "Viralimalai",
+  "offices": 13,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621651": {
+  "taluk": "Lalgudi",
+  "offices": 10,
+  "voting": 5,
+  "share": 1.0
+ },
+ "621652": {
+  "taluk": "Lalgudi",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621707": {
+  "taluk": "Ariyalur",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "621711": {
+  "taluk": "Lalgudi",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "621715": {
+  "taluk": "Ariyalur",
+  "offices": 11,
+  "voting": 5,
+  "share": 0.8
+ },
+ "622104": {
+  "taluk": "Illupur",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "622303": {
+  "taluk": "Alangudi",
+  "offices": 9,
+  "voting": 5,
+  "share": 1.0
+ },
+ "622401": {
+  "taluk": "Ponnamaravathi",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "622502": {
+  "taluk": "Kulathur",
+  "offices": 12,
+  "voting": 7,
+  "share": 0.86
+ },
+ "622506": {
+  "taluk": "Thirumayam",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "622507": {
+  "taluk": "Thirumayam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623115": {
+  "taluk": "Kamuthi",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "623135": {
+  "taluk": "Kadaladi",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "623308": {
+  "taluk": "Thiruvadani",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623404": {
+  "taluk": "Thiruvadani",
+  "offices": 2,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623407": {
+  "taluk": "Thiruvadani",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "623409": {
+  "taluk": "Thiruvadani",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623513": {
+  "taluk": "Ramanathapuram",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623528": {
+  "taluk": "Kadaladi",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "623532": {
+  "taluk": "Kilakarai",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623533": {
+  "taluk": "Kilakarai",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "623537": {
+  "taluk": "Paramakudi",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623603": {
+  "taluk": "Kamuthi",
+  "offices": 12,
+  "voting": 2,
+  "share": 1.0
+ },
+ "623605": {
+  "taluk": "Kamuthi",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "623703": {
+  "taluk": "Kadaladi",
+  "offices": 11,
+  "voting": 5,
+  "share": 1.0
+ },
+ "623711": {
+  "taluk": "Mudukulathur",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "624202": {
+  "taluk": "Nilakottai",
+  "offices": 16,
+  "voting": 2,
+  "share": 1.0
+ },
+ "624216": {
+  "taluk": "Kodaikannal",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "624220": {
+  "taluk": "Nilakottai",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "624303": {
+  "taluk": "Athoor",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "624304": {
+  "taluk": "Dindigul East",
+  "offices": 12,
+  "voting": 6,
+  "share": 1.0
+ },
+ "624308": {
+  "taluk": "Dindigul East",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "624401": {
+  "taluk": "Natham",
+  "offices": 21,
+  "voting": 4,
+  "share": 1.0
+ },
+ "624612": {
+  "taluk": "Oddenchatram",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "624613": {
+  "taluk": "Palani",
+  "offices": 8,
+  "voting": 5,
+  "share": 0.8
+ },
+ "624614": {
+  "taluk": "Oddenchatram",
+  "offices": 12,
+  "voting": 5,
+  "share": 1.0
+ },
+ "624615": {
+  "taluk": "Palani",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "624619": {
+  "taluk": "Oddenchatram",
+  "offices": 16,
+  "voting": 5,
+  "share": 0.8
+ },
+ "624702": {
+  "taluk": "Vedasandur",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "624704": {
+  "taluk": "Oddenchatram",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "624706": {
+  "taluk": "Gujiliamparai",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "624712": {
+  "taluk": "Oddenchatram",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "624801": {
+  "taluk": "Vedasandur",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "624802": {
+  "taluk": "Vedasandur",
+  "offices": 11,
+  "voting": 5,
+  "share": 0.8
+ },
+ "625014": {
+  "taluk": "Madurai North",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625016": {
+  "taluk": "Madurai West",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625019": {
+  "taluk": "Madurai West",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625020": {
+  "taluk": "Madurai East",
+  "offices": 11,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625101": {
+  "taluk": "Melur",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625102": {
+  "taluk": "Melur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625103": {
+  "taluk": "Melur",
+  "offices": 11,
+  "voting": 7,
+  "share": 1.0
+ },
+ "625105": {
+  "taluk": "Melur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625106": {
+  "taluk": "Melur",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "625107": {
+  "taluk": "Madurai East",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625108": {
+  "taluk": "Melur",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625109": {
+  "taluk": "Melur",
+  "offices": 8,
+  "voting": 6,
+  "share": 0.83
+ },
+ "625205": {
+  "taluk": "Vadipatti",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625207": {
+  "taluk": "Vadipatti",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625221": {
+  "taluk": "Vadipatti",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625234": {
+  "taluk": "Vadipatti",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625503": {
+  "taluk": "Vadipatti",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625512": {
+  "taluk": "Aundipatti",
+  "offices": 11,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625517": {
+  "taluk": "Aundipatti",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625520": {
+  "taluk": "Theni",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625524": {
+  "taluk": "Uthamapalayam",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625528": {
+  "taluk": "Bodinayakkanur",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625529": {
+  "taluk": "Usilampatti",
+  "offices": 8,
+  "voting": 5,
+  "share": 0.8
+ },
+ "625532": {
+  "taluk": "Usilampatti",
+  "offices": 12,
+  "voting": 3,
+  "share": 1.0
+ },
+ "625537": {
+  "taluk": "Usilampatti",
+  "offices": 8,
+  "voting": 5,
+  "share": 1.0
+ },
+ "625702": {
+  "taluk": "Peraiyur",
+  "offices": 11,
+  "voting": 6,
+  "share": 1.0
+ },
+ "625703": {
+  "taluk": "Peraiyur",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "625705": {
+  "taluk": "Peraiyur",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "626001": {
+  "taluk": "Virudhunagar",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "626103": {
+  "taluk": "Virudhunagar",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "626104": {
+  "taluk": "Kariyapatti",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "626106": {
+  "taluk": "Kariyapatti",
+  "offices": 8,
+  "voting": 5,
+  "share": 0.8
+ },
+ "626112": {
+  "taluk": "Aruppukkottai",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "626114": {
+  "taluk": "Aruppukkottai",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "626118": {
+  "taluk": "Aruppukkottai",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "626130": {
+  "taluk": "Sivakasi",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "626131": {
+  "taluk": "Vembakkottai",
+  "offices": 6,
+  "voting": 4,
+  "share": 1.0
+ },
+ "626142": {
+  "taluk": "Rajapalayam",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "626189": {
+  "taluk": "Sivakasi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "626201": {
+  "taluk": "Vembakkottai",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "626205": {
+  "taluk": "Sattur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "626612": {
+  "taluk": "Tiruchuli",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627007": {
+  "taluk": "Palayamkottai",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627010": {
+  "taluk": "Tirunelveli",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627108": {
+  "taluk": "Nanguneri",
+  "offices": 10,
+  "voting": 5,
+  "share": 0.8
+ },
+ "627113": {
+  "taluk": "Radhapuram",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "627201": {
+  "taluk": "Manur",
+  "offices": 10,
+  "voting": 3,
+  "share": 1.0
+ },
+ "627354": {
+  "taluk": "Nanguneri",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627356": {
+  "taluk": "Palayamkottai",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627357": {
+  "taluk": "Manur",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627358": {
+  "taluk": "Tirunelveli",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627359": {
+  "taluk": "Tirunelveli",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627416": {
+  "taluk": "Ambasamudram",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "627424": {
+  "taluk": "Tenkasi",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627758": {
+  "taluk": "Sivagiri",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "627804": {
+  "taluk": "Kadayanallur",
+  "offices": 3,
+  "voting": 3,
+  "share": 1.0
+ },
+ "627808": {
+  "taluk": "Tenkasi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627809": {
+  "taluk": "Shencottai",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627814": {
+  "taluk": "Tenkasi",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "627851": {
+  "taluk": "Alangulam",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627854": {
+  "taluk": "Alangulam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627860": {
+  "taluk": "Veerakeralampudur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "627862": {
+  "taluk": "Sankarankovil",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "628002": {
+  "taluk": "Ottapidaram",
+  "offices": 14,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628103": {
+  "taluk": "Thoothukudi",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628201": {
+  "taluk": "Tiruchendur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628202": {
+  "taluk": "Tiruchendur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628210": {
+  "taluk": "Tiruchendur",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628302": {
+  "taluk": "Ottapidaram",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628402": {
+  "taluk": "Ottapidaram",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628612": {
+  "taluk": "Eral",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628613": {
+  "taluk": "Sattankulam",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628619": {
+  "taluk": "Srivaikundam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628623": {
+  "taluk": "Eral",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628704": {
+  "taluk": "Sattankulam",
+  "offices": 10,
+  "voting": 3,
+  "share": 1.0
+ },
+ "628714": {
+  "taluk": "Kayathar",
+  "offices": 10,
+  "voting": 6,
+  "share": 1.0
+ },
+ "628716": {
+  "taluk": "Kovilpatti",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "628718": {
+  "taluk": "Ottapidaram",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "628802": {
+  "taluk": "Eral",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "628902": {
+  "taluk": "Ettayapuram",
+  "offices": 12,
+  "voting": 5,
+  "share": 1.0
+ },
+ "628905": {
+  "taluk": "Vilathikulam",
+  "offices": 10,
+  "voting": 5,
+  "share": 0.8
+ },
+ "628907": {
+  "taluk": "Vilathikulam",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "628952": {
+  "taluk": "Kayathar",
+  "offices": 7,
+  "voting": 5,
+  "share": 1.0
+ },
+ "629151": {
+  "taluk": "Vilavamcode",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "629173": {
+  "taluk": "Killiyoor",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "629177": {
+  "taluk": "Thiruvattar",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "629193": {
+  "taluk": "Killiyoor",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "629702": {
+  "taluk": "Agasteeswaram",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "629802": {
+  "taluk": "Kalkulam",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "629804": {
+  "taluk": "Kalkulam",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "629901": {
+  "taluk": "Thovalai",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "630001": {
+  "taluk": "Karaikudi",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630203": {
+  "taluk": "Thiruppattur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630207": {
+  "taluk": "Thiruppattur",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630210": {
+  "taluk": "Thiruppattur",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630211": {
+  "taluk": "Thiruppattur",
+  "offices": 14,
+  "voting": 5,
+  "share": 0.8
+ },
+ "630303": {
+  "taluk": "Devakottai",
+  "offices": 9,
+  "voting": 5,
+  "share": 1.0
+ },
+ "630309": {
+  "taluk": "Singampunari",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "630405": {
+  "taluk": "Thiruppattur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "630411": {
+  "taluk": "Devakottai",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630551": {
+  "taluk": "Kalaiyarkovil",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "630553": {
+  "taluk": "Sivaganga",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "630556": {
+  "taluk": "Kalaiyarkovil",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630558": {
+  "taluk": "Sivaganga",
+  "offices": 2,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630562": {
+  "taluk": "Sivaganga",
+  "offices": 21,
+  "voting": 6,
+  "share": 0.83
+ },
+ "630566": {
+  "taluk": "Singampunari",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630609": {
+  "taluk": "Manamadurai",
+  "offices": 11,
+  "voting": 6,
+  "share": 1.0
+ },
+ "630610": {
+  "taluk": "Manamadurai",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630611": {
+  "taluk": "Thiruppuvanam",
+  "offices": 12,
+  "voting": 5,
+  "share": 0.8
+ },
+ "630612": {
+  "taluk": "Thiruppuvanam",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "630709": {
+  "taluk": "Ilayankudi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "630710": {
+  "taluk": "Ilayankudi",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631003": {
+  "taluk": "Arakkonam",
+  "offices": 13,
+  "voting": 3,
+  "share": 1.0
+ },
+ "631051": {
+  "taluk": "Nemili",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631052": {
+  "taluk": "Nemili",
+  "offices": 8,
+  "voting": 5,
+  "share": 0.8
+ },
+ "631102": {
+  "taluk": "Sholinghur",
+  "offices": 14,
+  "voting": 5,
+  "share": 1.0
+ },
+ "631151": {
+  "taluk": "Arakkonam",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "631202": {
+  "taluk": "Pallipet",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "631203": {
+  "taluk": "Tiruvallur",
+  "offices": 10,
+  "voting": 6,
+  "share": 1.0
+ },
+ "631205": {
+  "taluk": "Tiruttani",
+  "offices": 11,
+  "voting": 9,
+  "share": 1.0
+ },
+ "631207": {
+  "taluk": "Pallipet",
+  "offices": 12,
+  "voting": 4,
+  "share": 1.0
+ },
+ "631208": {
+  "taluk": "Pallipet",
+  "offices": 13,
+  "voting": 3,
+  "share": 1.0
+ },
+ "631212": {
+  "taluk": "Tiruttani",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631301": {
+  "taluk": "R.K. Pet",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631302": {
+  "taluk": "R.K. Pet",
+  "offices": 12,
+  "voting": 6,
+  "share": 0.83
+ },
+ "631303": {
+  "taluk": "R.K. Pet",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631304": {
+  "taluk": "R.K. Pet",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631502": {
+  "taluk": "Kancheepuram",
+  "offices": 15,
+  "voting": 4,
+  "share": 1.0
+ },
+ "631551": {
+  "taluk": "Kancheepuram",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "631552": {
+  "taluk": "Kancheepuram",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631561": {
+  "taluk": "Kancheepuram",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "631605": {
+  "taluk": "Walajabad",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "631701": {
+  "taluk": "Cheyyar",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "631702": {
+  "taluk": "Vembakkam",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "632006": {
+  "taluk": "Katpadi",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "632010": {
+  "taluk": "Vellore",
+  "offices": 2,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632103": {
+  "taluk": "Anaicut",
+  "offices": 11,
+  "voting": 5,
+  "share": 1.0
+ },
+ "632105": {
+  "taluk": "Anaicut",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "632106": {
+  "taluk": "Katpadi",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "632107": {
+  "taluk": "Anaicut",
+  "offices": 8,
+  "voting": 5,
+  "share": 1.0
+ },
+ "632204": {
+  "taluk": "K.V. Kuppam",
+  "offices": 5,
+  "voting": 4,
+  "share": 1.0
+ },
+ "632209": {
+  "taluk": "K.V. Kuppam",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "632313": {
+  "taluk": "Chetpet",
+  "offices": 6,
+  "voting": 4,
+  "share": 1.0
+ },
+ "632318": {
+  "taluk": "Kalavai",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632404": {
+  "taluk": "Walajah",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632405": {
+  "taluk": "Walajah",
+  "offices": 2,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632503": {
+  "taluk": "Arcot",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632505": {
+  "taluk": "Sholinghur",
+  "offices": 8,
+  "voting": 5,
+  "share": 0.8
+ },
+ "632507": {
+  "taluk": "Arcot",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632508": {
+  "taluk": "Walajah",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "632509": {
+  "taluk": "Walajah",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632511": {
+  "taluk": "Vembakkam",
+  "offices": 10,
+  "voting": 3,
+  "share": 1.0
+ },
+ "632519": {
+  "taluk": "Katpadi",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632531": {
+  "taluk": "Nemili",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "632601": {
+  "taluk": "Gudiyatham",
+  "offices": 10,
+  "voting": 5,
+  "share": 1.0
+ },
+ "632604": {
+  "taluk": "Gudiyatham",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635001": {
+  "taluk": "Krishnagiri",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635101": {
+  "taluk": "Krishnagiri",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635102": {
+  "taluk": "Anchetty",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "635103": {
+  "taluk": "Hosur",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635104": {
+  "taluk": "Bargur",
+  "offices": 13,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635107": {
+  "taluk": "Denkanikotta",
+  "offices": 20,
+  "voting": 10,
+  "share": 0.9
+ },
+ "635109": {
+  "taluk": "Hosur",
+  "offices": 9,
+  "voting": 5,
+  "share": 1.0
+ },
+ "635110": {
+  "taluk": "Hosur",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "635111": {
+  "taluk": "Karimangalam",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "635112": {
+  "taluk": "Krishnagiri",
+  "offices": 13,
+  "voting": 4,
+  "share": 1.0
+ },
+ "635114": {
+  "taluk": "Denkanikotta",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635117": {
+  "taluk": "Shoolagiri",
+  "offices": 10,
+  "voting": 6,
+  "share": 1.0
+ },
+ "635118": {
+  "taluk": "Denkanikotta",
+  "offices": 11,
+  "voting": 7,
+  "share": 1.0
+ },
+ "635119": {
+  "taluk": "Shoolagiri",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635121": {
+  "taluk": "Krishnagiri",
+  "offices": 16,
+  "voting": 7,
+  "share": 1.0
+ },
+ "635122": {
+  "taluk": "Krishnagiri",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "635202": {
+  "taluk": "Karimangalam",
+  "offices": 14,
+  "voting": 7,
+  "share": 0.86
+ },
+ "635206": {
+  "taluk": "Pochampalli",
+  "offices": 9,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635207": {
+  "taluk": "Uthangarai",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635302": {
+  "taluk": "Pappireddipatty",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "635307": {
+  "taluk": "Uthangarai",
+  "offices": 12,
+  "voting": 6,
+  "share": 0.83
+ },
+ "635653": {
+  "taluk": "Tirupathur",
+  "offices": 11,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635654": {
+  "taluk": "Tirupathur",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635702": {
+  "taluk": "Tirupathur",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "635703": {
+  "taluk": "Jamunamarathoor",
+  "offices": 16,
+  "voting": 5,
+  "share": 1.0
+ },
+ "635751": {
+  "taluk": "Vaniyambadi",
+  "offices": 12,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635752": {
+  "taluk": "Vaniyambadi",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635806": {
+  "taluk": "Gudiyatham",
+  "offices": 6,
+  "voting": 5,
+  "share": 1.0
+ },
+ "635810": {
+  "taluk": "Pernambut",
+  "offices": 11,
+  "voting": 5,
+  "share": 0.8
+ },
+ "635811": {
+  "taluk": "Ambur",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635812": {
+  "taluk": "Ambur",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635813": {
+  "taluk": "Gudiyatham",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635815": {
+  "taluk": "Natarampalli",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "635852": {
+  "taluk": "Natarampalli",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "635901": {
+  "taluk": "Tirupathur",
+  "offices": 10,
+  "voting": 5,
+  "share": 1.0
+ },
+ "636008": {
+  "taluk": "Salem",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "636030": {
+  "taluk": "Salem West",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636101": {
+  "taluk": "Thalaivasal",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "636104": {
+  "taluk": "Valapady",
+  "offices": 11,
+  "voting": 3,
+  "share": 1.0
+ },
+ "636110": {
+  "taluk": "Gangavalli",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636112": {
+  "taluk": "Thalaivasal",
+  "offices": 11,
+  "voting": 6,
+  "share": 0.83
+ },
+ "636114": {
+  "taluk": "Pethanaickenpalayam",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636115": {
+  "taluk": "Valapady",
+  "offices": 12,
+  "voting": 6,
+  "share": 0.83
+ },
+ "636116": {
+  "taluk": "Thalaivasal",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636117": {
+  "taluk": "Pethanaickenpalayam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636121": {
+  "taluk": "Thalaivasal",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "636139": {
+  "taluk": "Valapady",
+  "offices": 5,
+  "voting": 4,
+  "share": 1.0
+ },
+ "636142": {
+  "taluk": "Rasipuram",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636202": {
+  "taluk": "Rasipuram",
+  "offices": 13,
+  "voting": 3,
+  "share": 1.0
+ },
+ "636204": {
+  "taluk": "Salem",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636303": {
+  "taluk": "Mettur",
+  "offices": 14,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636304": {
+  "taluk": "Omalur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636305": {
+  "taluk": "Kadayampatti",
+  "offices": 10,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636354": {
+  "taluk": "Kadayampatti",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "636453": {
+  "taluk": "Mettur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636503": {
+  "taluk": "Omalur",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "636601": {
+  "taluk": "Yercaud",
+  "offices": 12,
+  "voting": 4,
+  "share": 1.0
+ },
+ "636602": {
+  "taluk": "Yercaud",
+  "offices": 10,
+  "voting": 5,
+  "share": 1.0
+ },
+ "636704": {
+  "taluk": "Dharmapuri",
+  "offices": 7,
+  "voting": 4,
+  "share": 1.0
+ },
+ "636806": {
+  "taluk": "Palacode",
+  "offices": 7,
+  "voting": 5,
+  "share": 0.8
+ },
+ "636807": {
+  "taluk": "Nallampalli",
+  "offices": 12,
+  "voting": 4,
+  "share": 1.0
+ },
+ "636808": {
+  "taluk": "Palacode",
+  "offices": 17,
+  "voting": 5,
+  "share": 0.8
+ },
+ "636810": {
+  "taluk": "Pennagaram",
+  "offices": 13,
+  "voting": 7,
+  "share": 1.0
+ },
+ "636812": {
+  "taluk": "Palacode",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "636904": {
+  "taluk": "Pappireddipatty",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "636905": {
+  "taluk": "Pappireddipatty",
+  "offices": 14,
+  "voting": 6,
+  "share": 0.83
+ },
+ "636906": {
+  "taluk": "Harur",
+  "offices": 16,
+  "voting": 5,
+  "share": 1.0
+ },
+ "637003": {
+  "taluk": "Namakkal",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "637014": {
+  "taluk": "Namakkal",
+  "offices": 5,
+  "voting": 3,
+  "share": 1.0
+ },
+ "637015": {
+  "taluk": "Mohanur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "637018": {
+  "taluk": "Namakkal",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "637202": {
+  "taluk": "Tiruchengode",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "637205": {
+  "taluk": "Tiruchengode",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "637206": {
+  "taluk": "Paramathivelur",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "637209": {
+  "taluk": "Tiruchengode",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "637213": {
+  "taluk": "Paramathivelur",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "637214": {
+  "taluk": "Tiruchengode",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "637401": {
+  "taluk": "Rasipuram",
+  "offices": 7,
+  "voting": 5,
+  "share": 0.8
+ },
+ "637404": {
+  "taluk": "Sendamangalam",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "637406": {
+  "taluk": "Rasipuram",
+  "offices": 9,
+  "voting": 5,
+  "share": 1.0
+ },
+ "637407": {
+  "taluk": "Rasipuram",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "637408": {
+  "taluk": "Rasipuram",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "637410": {
+  "taluk": "Tiruchengode",
+  "offices": 8,
+  "voting": 5,
+  "share": 0.8
+ },
+ "637411": {
+  "taluk": "Kolli Hills",
+  "offices": 25,
+  "voting": 12,
+  "share": 0.92
+ },
+ "637503": {
+  "taluk": "Tiruchengode",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "638052": {
+  "taluk": "Perundurai",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "638057": {
+  "taluk": "Perundurai",
+  "offices": 6,
+  "voting": 4,
+  "share": 1.0
+ },
+ "638102": {
+  "taluk": "Erode",
+  "offices": 4,
+  "voting": 3,
+  "share": 1.0
+ },
+ "638104": {
+  "taluk": "Modakkurichi",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "638108": {
+  "taluk": "Kangayam",
+  "offices": 6,
+  "voting": 4,
+  "share": 1.0
+ },
+ "638152": {
+  "taluk": "Kodumudi",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "638311": {
+  "taluk": "Bhavani",
+  "offices": 10,
+  "voting": 4,
+  "share": 1.0
+ },
+ "638313": {
+  "taluk": "Gobichettipalayam",
+  "offices": 3,
+  "voting": 2,
+  "share": 1.0
+ },
+ "638402": {
+  "taluk": "Sathyamangalam",
+  "offices": 11,
+  "voting": 7,
+  "share": 0.86
+ },
+ "638451": {
+  "taluk": "Sathyamangalam",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "638453": {
+  "taluk": "Gobichettipalayam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "638455": {
+  "taluk": "Bhavani",
+  "offices": 10,
+  "voting": 2,
+  "share": 1.0
+ },
+ "638461": {
+  "taluk": "Thalavadi",
+  "offices": 15,
+  "voting": 5,
+  "share": 1.0
+ },
+ "638501": {
+  "taluk": "Anthiyur",
+  "offices": 11,
+  "voting": 3,
+  "share": 1.0
+ },
+ "638506": {
+  "taluk": "Gobichettipalayam",
+  "offices": 6,
+  "voting": 3,
+  "share": 1.0
+ },
+ "638657": {
+  "taluk": "Dharapuram",
+  "offices": 14,
+  "voting": 5,
+  "share": 0.8
+ },
+ "638660": {
+  "taluk": "Kangayam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "638661": {
+  "taluk": "Dharapuram",
+  "offices": 10,
+  "voting": 2,
+  "share": 1.0
+ },
+ "638673": {
+  "taluk": "Dharapuram",
+  "offices": 10,
+  "voting": 5,
+  "share": 1.0
+ },
+ "638702": {
+  "taluk": "Dharapuram",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "638812": {
+  "taluk": "Uthukkuli",
+  "offices": 2,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639006": {
+  "taluk": "Manmangalam",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639102": {
+  "taluk": "Krishnarayapuram",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639104": {
+  "taluk": "Kulithalai",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639110": {
+  "taluk": "Kulithalai",
+  "offices": 11,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639114": {
+  "taluk": "Manmangalam",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639115": {
+  "taluk": "Srirengam",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639118": {
+  "taluk": "Karur",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "639119": {
+  "taluk": "Krishnarayapuram",
+  "offices": 9,
+  "voting": 4,
+  "share": 1.0
+ },
+ "639201": {
+  "taluk": "Arvakurichi",
+  "offices": 11,
+  "voting": 5,
+  "share": 0.8
+ },
+ "639202": {
+  "taluk": "Dharapuram",
+  "offices": 11,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641010": {
+  "taluk": "Perur",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641107": {
+  "taluk": "Annur",
+  "offices": 11,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641109": {
+  "taluk": "Perur",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641202": {
+  "taluk": "Kinathukkdavu",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641302": {
+  "taluk": "Mettupalayam",
+  "offices": 9,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641653": {
+  "taluk": "Annur",
+  "offices": 14,
+  "voting": 3,
+  "share": 1.0
+ },
+ "641655": {
+  "taluk": "Avinashi",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641659": {
+  "taluk": "Sulur",
+  "offices": 8,
+  "voting": 3,
+  "share": 1.0
+ },
+ "641662": {
+  "taluk": "Palladam",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641663": {
+  "taluk": "Palladam",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641664": {
+  "taluk": "Palladam",
+  "offices": 13,
+  "voting": 6,
+  "share": 0.83
+ },
+ "641665": {
+  "taluk": "Tiruppur South",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "641670": {
+  "taluk": "Avinashi",
+  "offices": 5,
+  "voting": 2,
+  "share": 1.0
+ },
+ "642002": {
+  "taluk": "Pollachi",
+  "offices": 7,
+  "voting": 3,
+  "share": 1.0
+ },
+ "642005": {
+  "taluk": "Pollachi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "642007": {
+  "taluk": "Anaimalai",
+  "offices": 4,
+  "voting": 2,
+  "share": 1.0
+ },
+ "642103": {
+  "taluk": "Anaimalai",
+  "offices": 7,
+  "voting": 2,
+  "share": 1.0
+ },
+ "642110": {
+  "taluk": "Pollachi",
+  "offices": 8,
+  "voting": 2,
+  "share": 1.0
+ },
+ "642112": {
+  "taluk": "Udumalaipettai",
+  "offices": 6,
+  "voting": 2,
+  "share": 1.0
+ },
+ "642154": {
+  "taluk": "Udumalaipettai",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "642203": {
+  "taluk": "Madathukulam",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ },
+ "642207": {
+  "taluk": "Udumalaipettai",
+  "offices": 8,
+  "voting": 4,
+  "share": 1.0
+ }
+}

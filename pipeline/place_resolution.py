@@ -1275,6 +1275,9 @@ def resolve_place(gaz: Gazetteer, *, district: str | None = None,
 SRO_TALUKS = Path(__file__).resolve().parent / "lookups" / "sro_taluks.json"
 #: The learned {pin: {"taluk", "lots", "share"}} table.
 PIN_TALUKS = Path(__file__).resolve().parent / "lookups" / "pin_taluks.json"
+#: {pin: {"taluk", "offices", "voting", "share"}} from India Post's directory:
+#: each office named after one gazetteer village votes for its taluk.
+INDIA_POST_PINS = Path(__file__).resolve().parent / "lookups" / "pin_taluks_indiapost.json"
 #: A Tamil Nadu PIN code: 600 000–649 999, "603 203" or "603203".
 _PIN = re.compile(r"\b(6[0-4]\d)\s?(\d{3})\b")
 
@@ -1301,9 +1304,24 @@ def load_sro_taluks(path: Path = SRO_TALUKS) -> dict[str, str]:
     return {key: row["taluk"] for key, row in table.items()}
 
 
-def load_pin_taluks(path: Path = PIN_TALUKS) -> dict[str, str]:
-    """``{pin: taluk}`` from the learned table, or {} before it exists."""
-    return load_sro_taluks(path)
+def load_pin_taluks(path: Path = PIN_TALUKS,
+                    india_post: Path | None = None) -> dict[str, str]:
+    """``{pin: taluk}`` from the learned table and India Post's
+    (scripts/india_post_pin_taluks), or {} before either exists. A PIN the two
+    place in different taluks is believed by neither.
+
+    A hint only — :func:`taluk_hint_place` keeps the taluk only when the
+    notice's village is found inside it. Taken as an answer on its own, India
+    Post's entries name the wrong taluk too often: on placed listings with the
+    taluk hidden, 35 right and 14 wrong, since a post office's beat crosses
+    taluk lines. As a hint verified by the village: 345 right, 0 wrong."""
+    learned = load_sro_taluks(path)
+    posted = load_sro_taluks(INDIA_POST_PINS if india_post is None else india_post)
+    merged = {**posted, **learned}
+    for pin in learned.keys() & posted.keys():
+        if learned[pin] != posted[pin]:
+            del merged[pin]
+    return merged
 
 
 def property_pin(*texts: str | None) -> str | None:
