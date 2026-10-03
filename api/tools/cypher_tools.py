@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from api.agent3.common import owns_lot
 from api.neo4j_client import run_query, run_read_query, run_read_query_async
-from api.places import district_effective
+from api.places import district_effective, in_service_area
 from api import canonical as _canonical
 
 # Two Lucene fulltext indexes back `semantic_search`. Both are lexical: the
@@ -334,7 +334,8 @@ def search_auctions(
             f"order_by must be one of {sorted(_ORDER_BY_CLAUSES)}, got {order_by!r}"
         )
 
-    where = []
+    # Out-of-area listings are kept but never searched (api/places.py).
+    where = [in_service_area("a")]
     # ui_limit caps the UI-only row count. Always fetch up to the hard cap so
     # the `_ui_results` side-channel is fully populated, and never beyond it —
     # a model-requested limit above the cap must not widen the blast radius.
@@ -780,7 +781,7 @@ def semantic_search(
             ),
         }
 
-    where = []
+    where = [in_service_area("p")]
     params: dict = {
         "ft_query": ft_query,
         "k": k,

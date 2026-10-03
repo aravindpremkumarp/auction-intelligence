@@ -24,6 +24,7 @@ from __future__ import annotations
 from api.agent3 import enums
 from api.agent3.common import LISTING_OF_LOT, require_enum
 from api.neo4j_client import run_read_query
+from api.places import in_service_area
 
 
 def escape_lucene(text: str) -> str:
@@ -48,10 +49,12 @@ CALL {
   WITH i
   MATCH (i)<-[:MENTIONS_IDENTIFIER]-(l:Lot)
   MATCH """ + LISTING_OF_LOT + """
+  WHERE """ + in_service_area("a") + """
   RETURN a.auction_id AS auction_id
   UNION
   WITH i
   MATCH (i)<-[:HAS_IDENTIFIER]-(:Parcel)<-[:IS_PARCEL]-(a:AuctionProperty)
+  WHERE """ + in_service_area("a") + """
   RETURN a.auction_id AS auction_id
 }
 RETURN DISTINCT auction_id LIMIT $limit
@@ -67,6 +70,7 @@ CALL {
   WITH i, score
   MATCH (i)<-[:MENTIONS_IDENTIFIER]-(l:Lot)
   MATCH """ + LISTING_OF_LOT + """
+  WHERE """ + in_service_area("a") + """
   WITH a, i, score, l
   MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
   WITH a, i, score, l, count(DISTINCT anylot) AS lot_count
@@ -76,6 +80,7 @@ CALL {
   UNION
   WITH i, score
   MATCH (i)<-[:HAS_IDENTIFIER]-(:Parcel)<-[:IS_PARCEL]-(a:AuctionProperty)
+  WHERE """ + in_service_area("a") + """
   OPTIONAL MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
   WITH a, i, score, count(DISTINCT anylot) AS lot_count
   RETURN a.auction_id AS auction_id, i.kind AS matched_kind,

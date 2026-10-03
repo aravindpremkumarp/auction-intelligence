@@ -62,3 +62,19 @@ def suppress_portal_city(row: dict, city_key: str = "city",
     if row.get(district_key):
         row[city_key] = None
     return row
+
+
+def in_service_area(prop: str = "a") -> str:
+    """Cypher predicate: ``prop`` is somewhere buyers browse.
+
+    False only for a listing placed outside Tamil Nadu and not in Puducherry
+    or Karaikal (``pipeline.place_resolution.out_of_area``). The lot it IS
+    decides when the listing has one, since a lot carries the notice's own
+    state; a listing with no ``IS_LOT`` falls back to its own flag. Nothing is
+    deleted: the row stays in the graph, the review page and direct links.
+    """
+    return (
+        f"NOT (EXISTS {{ MATCH ({prop})-[:IS_LOT]->(_oa:Lot) WHERE _oa.out_of_area = true }} "
+        f"OR (coalesce({prop}.out_of_area, false) "
+        f"AND NOT EXISTS {{ MATCH ({prop})-[:IS_LOT]->(:Lot) }}))"
+    )

@@ -495,6 +495,22 @@ def test_a_tamil_nadu_district_that_resolves_is_never_sent_out_of_state(gaz):
     assert r["district"] == "Kancheepuram"
 
 
+def test_out_of_area_hides_other_states_but_keeps_puducherry_and_karaikal():
+    """Buyers browse Tamil Nadu plus its two next-door regions. Mahe and
+    Yanam belong to Puducherry too, but sit inside Kerala and Andhra."""
+    from pipeline.place_resolution import out_of_area
+    out = "outside-tamil-nadu"
+    assert out_of_area(out, district="Kollam", state=None)
+    assert out_of_area(out, district=None, state="Kerala")
+    assert not out_of_area(out, district="Karaikal", state=None)
+    assert not out_of_area(out, district=None, state="Puducherry")
+    assert not out_of_area(out, district="Bahour", state="Pondicherry")
+    assert out_of_area(out, district="Mahe", state="Puducherry")
+    # only an out-of-state verdict can hide anything
+    assert not out_of_area("unmatched", district="Kollam", state="Kerala")
+    assert not out_of_area(None, district=None, state=None)
+
+
 def _chennai() -> Gazetteer:
     return Gazetteer(
         districts=["Chennai", "Kancheepuram"],

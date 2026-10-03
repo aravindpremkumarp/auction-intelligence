@@ -54,8 +54,8 @@ from collections import Counter, defaultdict
 from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    load_taluk_neighbours, neighbour_taluk_place, property_pin, resolve_place,
-    taluk_hint_place, village_pieces_place,
+    load_taluk_neighbours, neighbour_taluk_place, out_of_area, property_pin,
+    resolve_place, taluk_hint_place, village_pieces_place,
 )
 from pipeline.resolution_review import (
     district_conflict_key, load_osm_aliases, settle_village, settled_conflicts,
@@ -199,6 +199,7 @@ def write_back(rows: list[dict]) -> None:
                 p.place_district_source  = row.district_source,
                 p.place_village_status   = row.village_status,
                 p.place_village_source   = row.village_source,
+                p.out_of_area            = row.out_of_area,
                 p.place_notice_conflict  = row.notice_conflict,
                 p.place_portal_conflict  = row.portal_conflict,
                 p.place_portal_conflict_kind = row.portal_conflict_kind,
@@ -423,6 +424,9 @@ def run(*, dry_run: bool = False) -> dict:
             "district_source": res["district_source"],
             "village_status": res["village_status"],
             "village_source": res["village_source"],
+            # Read by api.places.in_service_area only for a listing with no
+            # IS_LOT; a linked lot's own out_of_area outranks it.
+            "out_of_area": out_of_area(res["village_status"], district=district, state=None),
             "notice_conflict": res["conflict"],
             "portal_conflict": portal_conflict,
             "portal_conflict_kind": portal_kind,

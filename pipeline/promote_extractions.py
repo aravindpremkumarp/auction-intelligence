@@ -68,8 +68,8 @@ from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    load_taluk_neighbours, neighbour_taluk_place, property_pin, resolve_place,
-    taluk_hint_place, village_pieces_place,
+    load_taluk_neighbours, neighbour_taluk_place, out_of_area, property_pin,
+    resolve_place, taluk_hint_place, village_pieces_place,
 )
 from pipeline.property_taxonomy import (
     AGRICULTURAL, FLAT, LAND, PLOT, classify_property_type,
@@ -438,6 +438,14 @@ def lot_place(rec: dict) -> dict:
         # district the notice stated outright; see resolve_place.
         "district_source": district_source,
         "conflict": r["conflict"],
+        # The state and district as the notice wrote them. An out-of-state
+        # lot resolves to nulls, so these are the only record of where it is.
+        "state_raw": (loc.get("state") or "").strip() or None,
+        "district_raw": (loc.get("district") or "").strip() or None,
+        # Outside Tamil Nadu and not Puducherry/Karaikal: kept, but hidden
+        # from what buyers browse (api.places.in_service_area).
+        "out_of_area": out_of_area(status, district=loc.get("district"),
+                                   state=loc.get("state")),
     }
 
 
@@ -1086,7 +1094,10 @@ SET l.place_status = row.status,
     l.village_parts = CASE WHEN size(coalesce(row.village_parts, [])) > 0
                            THEN row.village_parts END,
     l.taluk = row.taluk,
-    l.district = row.district
+    l.district = row.district,
+    l.place_state_raw = row.state_raw,
+    l.place_district_raw = row.district_raw,
+    l.out_of_area = row.out_of_area
 
 // MATCH, never MERGE: every name here came out of the gazetteer, so a miss is
 // a bug worth leaving visible. MERGE would invent a duplicate place node with

@@ -26,6 +26,7 @@ from api.agent3.common import (
     LISTING_OF_LOT, ToolInputError, clamp_limit, scope_note, scope_of, tool,
 )
 from api.neo4j_client import run_read_query
+from api.places import in_service_area
 
 _MIN_QUERY_CHARS = 3
 _SNIPPET_CHARS = 240
@@ -61,6 +62,7 @@ def _build_lucene_query(text: str) -> str | None:
 _LOT_CYPHER = """
 CALL db.index.fulltext.queryNodes('lot_description_ft', $q) YIELD node AS l, score
 MATCH """ + LISTING_OF_LOT + """
+WHERE """ + in_service_area("a") + """
 WITH a, l, score
 MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
 WITH a, l, score, count(DISTINCT anylot) AS lot_count
@@ -76,6 +78,7 @@ ORDER BY score DESC LIMIT $limit
 
 _LISTING_CYPHER = """
 CALL db.index.fulltext.queryNodes('property_text_idx', $q) YIELD node AS a, score
+WHERE """ + in_service_area("a") + """
 WITH a, score
 MATCH (a)-[:HAS_DOCUMENT]->(:Document)-[:HAS_LOT]->(anylot:Lot)
 WITH a, score, count(DISTINCT anylot) AS lot_count

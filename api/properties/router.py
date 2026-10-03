@@ -23,7 +23,7 @@ from api.neo4j_client import run_query
 # Same rule as the property-type import below, for the same reason: the
 # notice-first place precedence is defined once and read here, never restated.
 from api.canonical import also_on, canonical_listing, has_photos, source
-from api.places import district_effective
+from api.places import district_effective, in_service_area
 from api.tools.cypher_tools import get_auction_detail
 # The notice-entity reader, imported rather than re-queried: it is where the
 # single-lot / multi-lot scope discipline and the `gaps` list are defined.
@@ -77,7 +77,9 @@ def _properties_filter_cypher(filters: dict[str, Any]) -> tuple[str, str, dict[s
     matches = ["(a:AuctionProperty)"]
     # One row per auction: a copy bridged to a better-ranked portal's listing
     # is folded into that row's `also_on` (api/canonical.py).
-    where: list[str] = [canonical_listing("a")]
+    # Out of area (outside Tamil Nadu, not Puducherry/Karaikal) is kept in
+    # the graph but never browsed (api/places.py).
+    where: list[str] = [canonical_listing("a"), in_service_area("a")]
     params: dict[str, Any] = {}
 
     # Categorical filters that support multi-select. With a single value the
