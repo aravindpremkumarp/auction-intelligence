@@ -226,6 +226,9 @@ def write_extraction(d: dict, ents: list[dict], batch: int, *, reader: str = "la
             label = "better" if how == "new" else "merged with the stored read"
             print(f"    {fn}: {label} — {', '.join(gains[:6])}" + (" …" if len(gains) > 6 else ""),
                   flush=True)
+    ents, reordered = in_notice_order(fn, ents, md, d.get("expected_lot_count"))
+    if reordered:
+        print(f"    {fn}: lots renumbered to the notice's order ({reordered})", flush=True)
     score = validate_stored(ents, source_text=md)["score"]
     rows, carried = carry_rows(targets, ents)
     if carried.get("orphaned"):
@@ -269,6 +272,39 @@ def write_extraction(d: dict, ents: list[dict], batch: int, *, reader: str = "la
             "entities": len(ents), "carried": carried, "counts": counts}
 
 
+_LOT_MATCH_DECIDED = """
+MATCH (r:ResolutionDecision {kind: 'lot-match'})
+WHERE r.decided_by IS NOT NULL AND NOT r.decided_by STARTS WITH 'system:'
+  AND r.payload_json CONTAINS $key
+RETURN count(r) AS n
+"""
+
+
+def in_notice_order(fn: str, ents: list[dict], md: str,
+                    expected: int | None = None) -> tuple[list[dict], str | None]:
+    """``ents`` with lots numbered in the notice's own order
+    (pipeline/lot_order), and how it was decided — or ``ents`` unchanged and
+    None when the order already matches, ``plan`` refuses, or a person has
+    matched a listing to one of this notice's lots (that decision names a lot
+    by number, so it is never moved silently)."""
+    from pipeline.extraction_ids import assign_ids
+    from pipeline.lot_order import apply as renumber, plan
+    try:
+        mapping, why = plan(ents, md, expected)
+    except Exception:  # noqa: BLE001 - ordering is a nicety, never a failed save
+        return ents, None
+    if not mapping:
+        return ents, None
+    try:
+        rows = run_read_query(_LOT_MATCH_DECIDED, {"key": json.dumps(fn)[1:-1] + "#"}, timeout=30.0)
+        if rows and rows[0].get("n"):
+            return ents, None
+    except Exception:  # noqa: BLE001 - unsure who decided what: leave the numbers
+        return ents, None
+    moved, _ = renumber(ents, {}, mapping)
+    return assign_ids(moved), why
+
+
 def _compact(t: dict | None) -> dict | None:
     if not t:
         return None
@@ -279,5 +315,5 @@ def _compact(t: dict | None) -> dict | None:
         return t
 
 
-__all__ = ["write_extraction", "KeptExisting", "previous", "carry_rows", "stored",
+__all__ = ["write_extraction", "KeptExisting", "in_notice_order", "previous", "carry_rows", "stored",
            "evidence_counts", "not_stated_marks", "RULE_READER_NOT_STATED"]
