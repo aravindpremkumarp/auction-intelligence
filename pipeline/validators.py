@@ -49,10 +49,11 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 6   # 4: full_description_incomplete stops charging details
+SCORE_VERSION = 7   # 4: full_description_incomplete stops charging details
                     # that are not a truncation; detail_wrong_lot (med) added
                     # 5: one span tagged to several lots is the nearest lot's
                     # 6: wrong_lot only when the lot has its own such detail
+                    # 7: never for a header sentence, a status, or a reviewer's add
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -227,6 +228,8 @@ def _shared_home(span, lot, fd_span, sharers: dict) -> str | None:
     ``lot`` itself (or nobody else carries it)."""
     if not sharers:
         return None
+    if span[1] <= min([fd_span[0]] + [blk[0] for blk in sharers.values()]):
+        return None        # the notice's header, before every lot: all of theirs
     best = min([(lot, fd_span)] + sorted(sharers.items()), key=lambda kv: _gap(span, kv[1]))
     return None if best[0] == lot else best[0]
 
@@ -250,6 +253,14 @@ def _outside_reason(span, txt, cls, kind, lot, fd, other_blocks, source_text,
     kind of record it is (reported, not scored)."""
     s, t = span
     a, b = fd["span"]
+    # What the detail IS comes first: a possession status or a portal ID is
+    # not a description detail of any lot, so it is never a lot's mislabel.
+    if cls == "identifier" and (kind in _RECORD_KINDS or _RECORD_TEXT.search(txt)):
+        return "record_id"
+    if cls == "location" and _COORDS.search(txt):
+        return "coordinates"
+    if cls == "property" and len(txt) < 60 and _STATUS_TEXT.search(txt):
+        return "status"
     if any(x <= s and t <= y for other, (x, y) in other_blocks if other != lot):
         return "wrong_lot"
     if _shared_home(span, lot, fd["span"], sharers or {}):
@@ -258,12 +269,6 @@ def _outside_reason(span, txt, cls, kind, lot, fd, other_blocks, source_text,
         return "covered"                   # straddles the block's edge
     if cls in ("property", "schedule") and t <= a and a - t <= 5:
         return "covered"                   # the heading line right before it
-    if cls == "identifier" and (kind in _RECORD_KINDS or _RECORD_TEXT.search(txt)):
-        return "record_id"
-    if cls == "location" and _COORDS.search(txt):
-        return "coordinates"
-    if cls == "property" and len(txt) < 60 and _STATUS_TEXT.search(txt):
-        return "status"
     if source_text:
         before = source_text[max(0, s - 120):s]
         if (cls in ("location", "property") and _PARTY_ADDRESS.search(before)
@@ -342,7 +347,8 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
             kind = normalize_identifier_kind(attrs.get("kind"))[0] if c == "identifier" else None
             gran_by_lot.setdefault(li, []).append(
                 (sp, txt, c, kind, getattr(e, "id", None),
-                 str(getattr(e, "extraction_text", "") or "")))
+                 str(getattr(e, "extraction_text", "") or ""),
+                 bool(getattr(e, "added", False))))
     for slot in fd_by_lot.values():
         slot["alnum"] = _alnum(slot["text"])
     other_blocks = [(li, sp) for li, slot in fd_by_lot.items() for sp in slot["spans"]]
@@ -362,7 +368,7 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
             missing_fd.append(li)
             continue
         outside, unchecked, elsewhere, reasons = set(), set(), set(), {}
-        for sp, txt, cls, kind, eid, raw in items:
+        for sp, txt, cls, kind, eid, raw, added in items:
             by_span = (sp and fd["span"] and fd["span"][0] <= sp[0] <= sp[1] <= fd["span"][1])
             if by_span or _covered_by_text(txt, cls, fd):
                 continue
@@ -377,6 +383,11 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                 outside.add(cls)       # both placed, and it really is outside
                 details.setdefault(li, []).append(
                     {"kind": "incomplete", "cls": cls, "text": raw, "id": eid, "in_lot": None})
+            elif why == "wrong_lot" and added:
+                # A reviewer put it on this lot by hand: their call, not a
+                # model's mislabel (e.g. the header's possession sentence
+                # selected once per lot).
+                reasons.setdefault("reviewer", set()).add(cls)
             elif why == "wrong_lot" and not _has_own(items, sp, cls, kind):
                 # The lot has no detail of this kind but this one: a fact
                 # the notice states once for several lots ("all the
@@ -678,6 +689,7 @@ def shim_stored(entities: list[dict]) -> list:
     from types import SimpleNamespace
     return [SimpleNamespace(
         id=e.get("id") or str(i),
+        added=bool(e.get("added")),
         extraction_class=e.get("cls"),
         extraction_text=e.get("text") or "",
         attributes=e.get("attrs") or {},

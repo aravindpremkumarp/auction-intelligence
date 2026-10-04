@@ -319,3 +319,43 @@ def test_a_shared_survey_number_is_judged_against_survey_numbers_only():
           _at(page, "identifier", "Plot No.2", lot="2", kind="plot"),
           _at(page, "identifier", "Re-survey No.187/7", lot="2", kind="survey_new")]
     assert full_description_coverage(ex, page)["lots_wrong_lot"] == {}
+
+
+def test_the_headers_possession_sentence_on_every_lot_is_not_a_wrong_lot():
+    """EQUITAS: "…possession of which has been taken…" stated once above the
+    lots and put on each of them. It sits before every lot's block, and it is
+    a status, not a description detail: no lot owns it more than another."""
+    head = "possession of which has been taken by the Authorised Officer."
+    fd1, fd2 = "Lot 1: land at Senthamangalam.", "Lot 2: land at Semangalam."
+    page = "Notice: the property, " + head + " " + fd1 + " " + "x" * 200 + " " + fd2
+    poss = "possession of which has been taken"
+    ex = [_block(page, fd1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "property", "land", lot="2", property_type="land"),   # lot 2's own
+          _at(page, "property", poss, lot="1", possession_type="physical"),
+          _at(page, "property", poss, lot="2", possession_type="physical")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_wrong_lot"] == {}
+    assert "detail_wrong_lot" not in _codes(ex)
+
+
+def test_a_header_detail_tagged_to_several_lots_is_shared_by_all():
+    """Before every lot's block, the nearest-block rule does not apply."""
+    village = "Kundrathur Village"
+    fd1, fd2 = "Lot 1: a flat in Block A.", "Lot 2: a plot in Block B."
+    page = "All properties are in " + village + ". " + fd1 + " " + "x" * 200 + " " + fd2
+    ex = [_block(page, fd1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "location", "Block B", lot="2"),          # lot 2's own location
+          _at(page, "location", village, lot="1"), _at(page, "location", village, lot="2")]
+    assert full_description_coverage(ex, page)["lots_wrong_lot"] == {}
+
+
+def test_a_reviewer_added_detail_is_never_called_a_mislabel():
+    fd1, fd2 = "Lot 1: land in S.F.No.179/6.", "Lot 2: site in S.No.88/2."
+    page = fd1 + " " + fd2
+    added = _at(page, "identifier", "S.No.88/2", lot="1", kind="survey_old")
+    added.added = True
+    ex = [_block(page, fd1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "identifier", "S.F.No.179/6", lot="1", kind="survey_old"), added]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_wrong_lot"] == {}
+    assert cov["lots_excused"] == {"1": {"reviewer": ["identifier"]}}
