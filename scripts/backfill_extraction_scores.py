@@ -69,7 +69,9 @@ def load_unscored(force: bool) -> list[dict]:
         f"MATCH (d:Document) WHERE {where} "
         "RETURN d.filename AS filename, "
         "       coalesce(d.stitched_markdown, d.markdown) AS md, "
-        "       d.extraction_json AS ej ORDER BY d.filename",
+        "       d.extraction_json AS ej, "
+        "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS elc "
+        "ORDER BY d.filename",
         {"version": SCORE_VERSION}, max_rows=20_000, timeout=120.0)
 
 
@@ -99,7 +101,8 @@ def main() -> int:
         except json.JSONDecodeError:
             failed += 1
             continue
-        score = validate_stored(ents, source_text=d["md"] or "")["score"]
+        score = validate_stored(ents, source_text=d["md"] or "",
+                                expected_lot_count=d.get("elc"))["score"]
         rows.append({"filename": d["filename"], "score": score})
 
     if failed:

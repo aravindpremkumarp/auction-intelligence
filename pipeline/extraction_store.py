@@ -237,7 +237,8 @@ def write_extraction(d: dict, ents: list[dict], batch: int, *, reader: str = "la
     if grown:
         print(f"    {fn}: description widened over missed details on lot(s) "
               f"{', '.join(grown)}", flush=True)
-    score = validate_stored(ents, source_text=md)["score"]
+    score = validate_stored(ents, source_text=md,
+                            expected_lot_count=d.get("expected_lot_count"))["score"]
     rows, carried = carry_rows(targets, ents)
     if carried.get("orphaned"):
         print(f"    {fn}: {carried['orphaned']} reviewer correction(s) orphaned by this "
