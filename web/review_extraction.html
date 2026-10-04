@@ -87,7 +87,12 @@
  button{cursor:pointer;border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:6px 12px;font-size:13px}
  button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
  #doc{display:flex;gap:18px}
- #src{flex:1.3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;white-space:pre-wrap;line-height:1.7;font-size:13px;max-height:84vh;overflow:auto}
+ #srcwrap{flex:1.3;min-width:0;display:flex;flex-direction:column;gap:6px}
+ #srcbar{display:flex;align-items:center;gap:8px;font-size:12px;color:#64748b}
+ .seg{display:inline-flex;border:1px solid #cbd5e1;border-radius:6px;overflow:hidden}
+ .seg button{border:0;border-radius:0;padding:3px 10px;font-size:12px;background:transparent}
+ .seg button.on{background:#2563eb;color:#fff}
+ #src{flex:1;min-height:0;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;white-space:pre-wrap;line-height:1.7;font-size:13px;max-height:calc(84vh - 30px);overflow:auto}
  #fields{flex:1;max-height:84vh;overflow:auto}
  .fld{background:#fff;border:1px solid #e2e8f0;border-radius:9px;padding:9px 11px;margin-bottom:8px}
  .fld .c{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
@@ -120,6 +125,8 @@
  #notice .imgwrap.zoom img{cursor:zoom-out}
  #notice canvas{width:100%;height:auto;display:block}
  #notice .pagewrap{position:relative;display:block;margin-bottom:6px}
+ #notice .nplbl{display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px;padding-top:6px;border-top:2px dashed #6366f1;color:#6366f1;font-size:11px;font-family:'IBM Plex Mono',monospace}
+ #notice .npage:first-of-type .nplbl{border-top:0;margin-top:0;padding-top:0}
  mark[data-fid]{cursor:pointer}
  .fld{cursor:pointer}.fld textarea{cursor:text}
  mark.cur,.fld.cur{outline:2px solid #2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.25)}
@@ -204,6 +211,10 @@
  html.dark button{background:#1e293b;color:#e2e8f0;border-color:#334155}
  html.dark button:hover:not(:disabled){background:#273449}
  html.dark button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
+ html.dark .seg{border-color:#334155}
+ html.dark .seg button{background:transparent}
+ html.dark .seg button.on{background:#2563eb;color:#fff}
+ html.dark #srcbar{color:#94a3b8}
  html.dark button:disabled{opacity:.5}
  html.dark #msg,html.dark #pos{color:#94a3b8}
  html.dark #src,html.dark #notice,html.dark .fld,html.dark #keys{background:#111827;border-color:#1f2937}
@@ -274,7 +285,6 @@
       <span id="pos">– / –</span>
       <button class="navbtn" onclick="nav(1)" title="next highlight (→)">▶</button>
       <span style="flex:1"></span>
-      <button id="mdBtn" onclick="toggleMdMode()" title="raw markdown ↔ rendered">✦ rendered</button>
       <button id="imgBtn" onclick="toggleImgPane()">🖼 notice</button>
       <button id="boxBtn" onclick="toggleBoxes()" title="show/hide OCR bounding boxes">▦ boxes</button>
       <button class="primary" id="verifyBtn" onclick="doVerify()">✓ Verify</button>
@@ -291,7 +301,7 @@
       <button onclick="fillTypeValue()" title="no such text in the notice — type the value (stored without a highlight)">Type it</button>
       <button onclick="fillCancel()">Cancel</button>
     </div>
-    <div id="doc"><div id="notice" style="display:none"></div><div id="src"></div><div id="fields"></div></div>
+    <div id="doc"><div id="notice" style="display:none"></div><div id="srcwrap"><div id="srcbar"><span>Markdown</span><span class="seg"><button id="mdRendered" onclick="setMdMode('rendered')" title="show tables and formatting">Rendered</button><button id="mdRaw" onclick="setMdMode('raw')" title="show the OCR text exactly as stored">Raw</button></span></div><div id="src"></div></div><div id="fields"></div></div>
   </div>
 </div>
 <script>
@@ -309,10 +319,12 @@ let CUR=null;
 // list. noticeFor = filename currently shown in the #notice pane (so save/verify
 // re-renders don't reload the image or reset its zoom).
 let curFid=null,PAINTED=[],noticeFor=null;
-// Bounding-box state (item 3): BLOCKS = the OCR/layout blocks for noticeFor;
-// BLINK = fid→blockId map when the blocks faithfully reassemble to CUR.markdown
-// (best-effort; empty when the markdown was edited/normalised). blocksFor tracks
-// which filename BLOCKS belongs to so we fetch once per document.
+// Bounding-box state (item 3): BLOCKS[k] = the OCR/layout blocks of the k-th
+// source file shown for noticeFor (one file, or each page of a stitched notice);
+// BLINK = fid→box element id when a file's blocks faithfully reassemble to its
+// part of CUR.markdown (best-effort; empty when the markdown was edited or
+// normalised). blocksFor tracks which filename BLOCKS belongs to so we fetch
+// once per document.
 let BLOCKS=[],BLINK={},blocksFor=null;
 // API base set on window by the bootstrap above (?api= from review.html, else
 // same-origin). Auth via the Supabase bearer token (window.Auth.fetchWithAuth),
@@ -605,8 +617,9 @@ function render(){
 // Default rendered so the embedded HTML tables show as tables; "raw" shows the
 // unrendered OCR text. Persisted per reviewer.
 const mdMode=()=>localStorage.getItem("xr_md")==="raw"?"raw":"rendered";
-function refreshMdBtn(){const b=document.getElementById("mdBtn");if(b)b.textContent=mdMode()==="raw"?"✦ raw":"✦ rendered";}
-function toggleMdMode(){localStorage.setItem("xr_md",mdMode()==="raw"?"rendered":"raw");refreshMdBtn();if(CUR)render();}
+function refreshMdBtn(){const m=mdMode();
+  for(const [id,v] of [["mdRendered","rendered"],["mdRaw","raw"]]){const b=document.getElementById(id);if(b)b.classList.toggle("on",m===v);}}
+function setMdMode(v){if(v===mdMode())return;localStorage.setItem("xr_md",v);refreshMdBtn();if(CUR)render();}
 // Build the #src innerHTML for the non-overlapping span set `use`.
 //  rendered: sentinel-inject each span into the RAW markdown at its char offsets,
 //            render via marked, sanitize, then swap sentinels → per-field <mark>.
@@ -714,7 +727,7 @@ function setCur(fid,scroll){
   const fl=document.getElementById("fld_"+fid);
   if(fl)fl.classList.add("cur");
   document.querySelectorAll('#keys td.filled[data-fid="'+fid+'"]').forEach(td=>td.classList.add("cur"));
-  const bx=BLINK[fid]?document.getElementById("bx_"+BLINK[fid]):null;  // mapped notice box, if any
+  const bx=BLINK[fid]?document.getElementById(BLINK[fid]):null;  // mapped notice box, if any
   if(bx)bx.classList.add("cur");
   if(scroll.mark&&marks[0])marks[0].scrollIntoView({block:"center",behavior:"smooth"});
   if(scroll.card&&fl)fl.scrollIntoView({block:"center",behavior:"smooth"});
@@ -762,7 +775,7 @@ function openAnnotatorInParent(fn){
 }
 document.addEventListener("click",e=>{
   const a=e.target.closest("#notice .annlink");
-  if(a&&openAnnotatorInParent(CUR&&CUR.filename))e.preventDefault();
+  if(a&&openAnnotatorInParent(a.dataset.fn||(CUR&&CUR.filename)))e.preventDefault();
 });
 const imgPaneOn=()=>localStorage.getItem("xr_img")!=="0";
 function toggleImgPane(){localStorage.setItem("xr_img",imgPaneOn()?"0":"1");applyImgPane();}
@@ -772,36 +785,50 @@ function applyImgPane(){
   n.style.display=on?"":"none";
   document.getElementById("imgBtn").textContent=imgPaneOn()?"🖼 hide notice":"🖼 show notice";
   if(on&&noticeFor!==CUR.filename)loadNotice();}
+// The source files behind CUR's text: a stitched leader lists its pages in
+// order (page 1 is itself); any other notice is just its own file.
+const noticeFiles=d=>(d.stitched_pages&&d.stitched_pages.length>1)?d.stitched_pages:[d.filename];
+const isPdfFile=(fn,k)=>/\.pdf$/i.test(fn)||(k===0&&((CUR.content_type||"").includes("pdf")||CUR.doc_type==="pdf"));
+const annLink=(fn,label)=>`<a class="annlink" data-fn="${esc(fn)}" href="review.html#notice/${encodeURIComponent(fn)}" target="_blank" rel="noopener" style="font-size:11px">${label}</a>`;
 function loadNotice(){
   const n=document.getElementById("notice");if(!n||!CUR)return;
   const fn=noticeFor=CUR.filename;
   BLOCKS=[];BLINK={};blocksFor=null;refreshBoxBtn();        // new doc → drop stale boxes
-  const isPdf=(CUR.content_type||"").includes("pdf")||CUR.doc_type==="pdf"||/\.pdf$/i.test(fn);
+  const files=noticeFiles(CUR),multi=files.length>1;
   // Link to the block annotator for this document (item 2) — not the raw image.
   // The raw source stays reachable from the annotator's own "open source ↗".
-  const open=`<div style="text-align:right;margin-bottom:4px"><a class="annlink" href="review.html#notice/${encodeURIComponent(fn)}" target="_blank" rel="noopener" style="font-size:11px">annotate blocks ↗</a></div>`;
-  if(isPdf){
-    n.innerHTML=open+'<div id="pdfbox" style="color:#64748b;font-size:12px">loading pdf…</div>';
-    renderPdf(n.querySelector("#pdfbox"),proxyUrl(fn))
-      .then(()=>{if(noticeFor===fn)ensureBlocks(fn);})
-      .catch(()=>{const b=n.querySelector("#pdfbox");
-        if(noticeFor===fn&&b)b.textContent="pdf load failed — see annotate blocks ↗";});
-    return;}
-  n.innerHTML=open;
-  // img + absolutely-positioned box overlay in one relatively-positioned wrapper;
-  // zoom toggles the wrapper (not the img) so the %-positioned boxes track it.
-  const wrap=document.createElement("div");wrap.className="imgwrap";
-  const img=new Image();img.alt="sale notice";
-  img.onerror=()=>{
-    if(noticeFor!==fn)return;
-    if(!img.dataset.p){img.dataset.p="1";img.src=proxyUrl(fn);return;}
-    wrap.remove();
-    n.insertAdjacentHTML("beforeend",'<div class="nerr">no source image (missing on R2 and via proxy)</div>');};
-  img.onclick=()=>wrap.classList.toggle("zoom");
-  const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page="1";
-  wrap.appendChild(img);wrap.appendChild(ovl);n.appendChild(wrap);
-  img.src=CUR.public_url||proxyUrl(fn);
-  ensureBlocks(fn);}
+  n.innerHTML=multi?"":`<div style="text-align:right;margin-bottom:4px">${annLink(fn,"annotate blocks ↗")}</div>`;
+  // One section per source file, in page order, so a stitched notice shows
+  // every page it was read from — not just the leader's.
+  const loads=files.map((pf,k)=>{
+    const sec=document.createElement("div");sec.className="npage";n.appendChild(sec);
+    if(multi)sec.insertAdjacentHTML("beforeend",
+      `<div class="nplbl"><span>page ${k+1} of ${files.length} · ${esc(pf)}</span>${annLink(pf,"annotate ↗")}</div>`);
+    if(isPdfFile(pf,k)){
+      const box=document.createElement("div");box.style.cssText="color:#64748b;font-size:12px";
+      box.textContent="loading pdf…";sec.appendChild(box);
+      return renderPdf(box,proxyUrl(pf),k)
+        .catch(()=>{if(noticeFor===fn&&box.isConnected)box.textContent="pdf load failed — see annotate blocks ↗";});}
+    // img + absolutely-positioned box overlay in one relatively-positioned wrapper;
+    // zoom toggles the wrapper (not the img) so the %-positioned boxes track it.
+    const wrap=document.createElement("div");wrap.className="imgwrap";
+    const img=new Image();img.alt=multi?`sale notice page ${k+1}`:"sale notice";
+    // Page 1 loads from R2 when it has a public_url; other pages (and the
+    // fallback) go through the API proxy, which finds the file by name.
+    const viaR2=k===0&&!!CUR.public_url;
+    if(!viaR2)img.dataset.p="1";
+    img.onerror=()=>{
+      if(noticeFor!==fn)return;
+      if(!img.dataset.p){img.dataset.p="1";img.src=proxyUrl(pf);return;}
+      wrap.remove();
+      sec.insertAdjacentHTML("beforeend",'<div class="nerr">no source image (missing on R2 and via proxy)</div>');};
+    img.onclick=()=>wrap.classList.toggle("zoom");
+    const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");
+    ovl.dataset.file=k;ovl.dataset.page="1";
+    wrap.appendChild(img);wrap.appendChild(ovl);sec.appendChild(wrap);
+    img.src=viaR2?CUR.public_url:proxyUrl(pf);
+    return null;});
+  Promise.all(loads).then(()=>{if(noticeFor===fn)ensureBlocks(fn);});}
 async function ensurePdfJs(){ // review.html idiom: legacy UMD build + explicit worker
   if(window.pdfjsLib)return;
   await new Promise((res,rej)=>{const s=document.createElement("script");
@@ -810,7 +837,7 @@ async function ensurePdfJs(){ // review.html idiom: legacy UMD build + explicit 
   if(!window.pdfjsLib)throw new Error("pdf.js failed to load");
   window.pdfjsLib.GlobalWorkerOptions.workerSrc=
     "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";}
-async function renderPdf(box,url){
+async function renderPdf(box,url,file=0){
   await ensurePdfJs();
   const doc=await pdfjsLib.getDocument(url).promise;
   if(!box.isConnected)return; // reviewer switched docs mid-load
@@ -820,7 +847,7 @@ async function renderPdf(box,url){
     const page=await doc.getPage(i),vp=page.getViewport({scale:1.5});
     const pw=document.createElement("div");pw.className="pagewrap";
     const c=document.createElement("canvas");c.width=vp.width;c.height=vp.height;
-    const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page=i;
+    const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page=i;ovl.dataset.file=file;
     pw.appendChild(c);pw.appendChild(ovl);box.appendChild(pw);
     await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;}
   if(doc.numPages>pages)box.insertAdjacentHTML("beforeend",
@@ -831,7 +858,7 @@ async function renderPdf(box,url){
 // place as CSS % over the notice and auto-scale — no natural/displayed math.
 const boxesHidden=()=>localStorage.getItem("xr_box")==="0";
 function refreshBoxBtn(){const b=document.getElementById("boxBtn");if(!b)return;
-  if(blocksFor&&!BLOCKS.length){b.textContent="▦ no boxes";b.disabled=true;b.title="no OCR layout data for this document";return;}
+  if(blocksFor&&!BLOCKS.some(b=>b&&b.length)){b.textContent="▦ no boxes";b.disabled=true;b.title="no OCR layout data for this document";return;}
   b.disabled=false;b.title="show/hide OCR bounding boxes";
   b.textContent=boxesHidden()?"▦ show boxes":"▦ hide boxes";}
 function toggleBoxes(){localStorage.setItem("xr_box",boxesHidden()?"1":"0");
@@ -840,22 +867,40 @@ function toggleBoxes(){localStorage.setItem("xr_box",boxesHidden()?"1":"0");
 async function ensureBlocks(fn){
   if(blocksFor!==fn){
     blocksFor=fn;BLOCKS=[];BLINK={};
-    try{
-      const r=await api("/review/notice/"+encodeURIComponent(fn)+"/blocks");
-      if(noticeFor!==fn)return;                 // reviewer switched docs mid-fetch
-      if(r.ok){const d=await r.json();
-        if(!d.backfill_required&&Array.isArray(d.blocks))BLOCKS=d.blocks;}
-    }catch(_){/* leave BLOCKS empty → generic "no boxes" */}
-    if(noticeFor!==fn)return;
-    BLINK=computeBlockLink(BLOCKS,(CUR&&CUR.markdown)||"");
+    const files=noticeFiles(CUR);
+    const got=await Promise.all(files.map(async pf=>{
+      try{
+        const r=await api("/review/notice/"+encodeURIComponent(pf)+"/blocks");
+        if(r.ok){const d=await r.json();
+          if(!d.backfill_required&&Array.isArray(d.blocks))return d.blocks;}
+      }catch(_){/* leave this file empty → generic "no boxes" */}
+      return [];}));
+    if(noticeFor!==fn)return;                   // reviewer switched docs mid-fetch
+    BLOCKS=got;
+    BLINK=computeBlockLinks(BLOCKS,CUR);
   }
   paintBoxes();refreshBoxBtn();
 }
+const boxId=(k,id)=>"bx_"+k+"_"+id;
+// Each file's slice of CUR.markdown: the stitched text is the pages joined by
+// pipeline/notice_pages.SEPARATOR ("\n\n") at stitched_page_offsets, so page k
+// runs from its offset to the separator before page k+1.
+function computeBlockLinks(blocks,d){
+  const md=(d&&d.markdown)||"";
+  const offs=blocks.length>1?(d.stitched_page_offsets||[]):[0];
+  if(offs.length!==blocks.length)return {};
+  const link={};
+  blocks.forEach((bl,k)=>{
+    const s=offs[k],e=k+1<offs.length?offs[k+1]-2:md.length;
+    Object.assign(link,computeBlockLink(bl,md.slice(s,e),s,k));});
+  return link;
+}
 // Best-effort field→box map: replay pipeline/mineru.py assemble_markdown and, only
-// if it reproduces CUR.markdown exactly, map each grounded field's start offset to
-// the block whose reassembled span contains it. A mismatch (edited/normalised
+// if it reproduces this file's markdown exactly, map each grounded field's start
+// offset (shifted by `base`, where the file's text starts in CUR.markdown) to the
+// block whose reassembled span contains it. A mismatch (edited/normalised
 // markdown) yields {} — boxes then show generically, never wrongly.
-function computeBlockLink(blocks,markdown){
+function computeBlockLink(blocks,markdown,base,k){
   if(!blocks.length||!markdown)return {};
   const skip={Discarded:1,PageNumber:1};
   const ordered=blocks.filter(b=>!skip[b.label]).slice()
@@ -870,21 +915,22 @@ function computeBlockLink(blocks,markdown){
   const link={};
   if(CUR&&CUR.fields)for(const fl of CUR.fields){
     if(fl.start==null)continue;
-    const blk=spans.find(sp=>fl.start>=sp.s&&fl.start<sp.e);
-    if(blk)link[fl.id]=blk.id;}
+    const at=fl.start-base;
+    const blk=spans.find(sp=>at>=sp.s&&at<sp.e);
+    if(blk)link[fl.id]=boxId(k,blk.id);}
   return link;
 }
 function paintBoxes(){
   const n=document.getElementById("notice");if(!n)return;
-  const rev={};for(const fid in BLINK)rev[BLINK[fid]]=fid;   // blockId → fid
+  const rev={};for(const fid in BLINK)rev[BLINK[fid]]=fid;   // box id → fid
   n.querySelectorAll(".ovl").forEach(ovl=>{
-    const pg=+ovl.dataset.page||1;ovl.innerHTML="";
-    for(const b of BLOCKS){
+    const k=+ovl.dataset.file||0,pg=+ovl.dataset.page||1;ovl.innerHTML="";
+    for(const b of BLOCKS[k]||[]){
       if((b.page||1)!==pg)continue;
       const bb=b.bbox||[];if(bb.length<4)continue;
-      const fid=rev[b.id];
+      const bid=boxId(k,b.id),fid=rev[bid];
       const el=document.createElement("div");
-      el.className="bbx"+(fid?" link":"");el.id="bx_"+b.id;
+      el.className="bbx"+(fid?" link":"");el.id=bid;
       el.title="OCR block — edit in annotate blocks ↗"; // these are the annotate-blocks regions, read-only here
       if(fid){el.dataset.fid=fid;if(fid===curFid)el.classList.add("cur");}
       el.style.left=(bb[0]*100)+"%";el.style.top=(bb[1]*100)+"%";
