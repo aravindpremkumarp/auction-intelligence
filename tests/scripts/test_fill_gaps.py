@@ -4,7 +4,7 @@ from __future__ import annotations
 import scripts.fill_gaps as F
 
 MD = ("SALE NOTICE. Lot 1: land at Sy No 12/1, Village V, 1200 sq.ft. "
-      "Possession: symbolic. Auction on 01.10.2026.\n")
+      "Possession: symbolic. Auction on 01.10.2026. Reserve price Rs.9,50,000.\n")
 
 
 def _e(cls, text, md=MD, lot="1", **attrs):
