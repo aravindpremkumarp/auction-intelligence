@@ -118,3 +118,20 @@ def test_keep_better_raises_when_stored_is_at_least_as_good(monkeypatch):
                             [{"cls": "auction_terms", "text": "Rs.1", "start": 0, "end": 4, "attrs": {"lot_index": "1"}}],
                             5, keep_better=True)
     assert captured == []
+
+
+def test_a_changed_text_does_not_let_a_thinner_read_through(monkeypatch):
+    """The stored spans point into a text that is gone, so `best` cannot run,
+    but a read with fewer key facts is still refused (keep_better.stale_losses)."""
+    captured: list = []
+    _quiet_store(monkeypatch, captured)
+    stored = [{"cls": c, "text": "x", "attrs": {"lot_index": "1", **a}}
+              for c, a in (("full_description", {}), ("location", {}),
+                           ("auction_terms", {"reserve_price_num": "100000"}))]
+    monkeypatch.setattr(ES, "stored", lambda fn: {"entities": stored, "text_changed": True})
+    import pytest
+    with pytest.raises(ES.KeptExisting, match="changed text"):
+        ES.write_extraction({"filename": "a.jpg", "md": "new text"},
+                            [{"cls": "full_description", "text": "x", "attrs": {"lot_index": "1"}}],
+                            5, keep_better=True)
+    assert captured == []
