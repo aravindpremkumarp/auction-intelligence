@@ -52,14 +52,16 @@ import re
 from pipeline.apply_extractions import added_entities, parse_money
 
 # (key, label, entity class, attribute). attribute=None means the entity's own
-# text is the value.
+# text is the value. Order is the reviewer's check order (after missing / extra
+# lots and before lot order, which are whole-notice checks): reserve price,
+# auction date, description, property type, location, extent, possession.
 KEY_ENTITIES: tuple[tuple[str, str, str, str | None], ...] = (
     ("reserve_price",    "Reserve price",    "auction_terms",    "reserve_price_num"),
     ("auction_date",     "Auction date",     "auction_terms",    "auction_start_dt"),
+    ("full_description", "Full description", "full_description", None),
     ("property_type",    "Property type",    "property",         "property_type"),
     ("location",         "Location",         "location",         None),
     ("extent",           "Extent",           "extent",           None),
-    ("full_description", "Full description", "full_description", None),
     ("possession_type",  "Possession",       "property",         "possession_type"),
 )
 KEYS = tuple(k for k, _, _, _ in KEY_ENTITIES)
@@ -351,12 +353,45 @@ def issue_codes_from_stored(extraction_json: str | None,
                             markdown: str | None = None) -> list[str]:
     """The pipeline/validators.py issue codes for this document as it stands
     now — the model's entities with the reviewer's corrections and added
-    entities applied, so a filled gap drops out of its failure filter."""
+    entities applied, so a filled gap drops out of its failure filter.
+
+    Plus the review checks validators.py has no code for (see
+    :func:`review_codes`)."""
     from pipeline.apply_extractions import entities_with_corrections
     from pipeline.validators import validate_stored
     ents = entities_with_corrections(extraction_json or "[]", corrections_json)
     report = validate_stored(ents, source_text=markdown or "")
-    return sorted({i["code"] for i in report["issues"]})
+    codes = {i["code"] for i in report["issues"]}
+    codes.update(review_codes(ents, _loads(corrections_json, {}), markdown))
+    return sorted(codes)
+
+
+def review_codes(entities: list[dict], corrections: dict | None,
+                 markdown: str | None) -> set[str]:
+    """Issue codes for review checks validators.py does not make:
+
+    * ``lot_order_off`` — the lots are not numbered in the sale notice's order
+      (pipeline/lot_order.plan would renumber them, or finds the lots running
+      4, 5, 6, 1, 2, 3 — pages joined in the wrong order).
+    * ``lot_missing_auction_date`` / ``lot_missing_possession`` — an extracted
+      lot whose checklist cell is still missing (not filled, not marked "not in
+      the notice"). Lots the model never emitted are the "missing lots" check's,
+      so they do not raise these.
+    """
+    from pipeline.lot_order import plan
+    out: set[str] = set()
+    mapping, reason = plan(entities, markdown)
+    if mapping or reason.startswith("lots run"):
+        out.add("lot_order_off")
+    k = key_checklist(entities, corrections or {})
+    for lot in k["lots"]:
+        if not lot["extracted"]:
+            continue
+        if lot["cells"]["auction_date"]["status"] == "missing":
+            out.add("lot_missing_auction_date")
+        if lot["cells"]["possession_type"]["status"] == "missing":
+            out.add("lot_missing_possession")
+    return out
 
 
 def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
@@ -415,5 +450,5 @@ def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
 __all__ = ["KEY_ENTITIES", "KEYS", "KEY_LABELS", "KEY_CLASS", "KEY_ATTR",
            "AUTO", "absent_key", "absent_marks", "added_entities", "key_marks",
            "unfound_key",
-           "extracted_lot_count", "issue_codes_from_stored",
+           "extracted_lot_count", "issue_codes_from_stored", "review_codes",
            "key_checklist", "key_checklist_from_stored", "stamp_key_scores"]

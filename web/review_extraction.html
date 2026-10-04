@@ -913,22 +913,23 @@ async function doVerify(){
   if(r.ok){CUR=await r.json();render();loadQueue();setMsg("verified");}else setMsg("verify failed "+r.status);
 }
 // ── key-entity checklist ─────────────────────────────────────────────────────
-// Column order and labels mirror pipeline/key_entities.KEY_ENTITIES. Each key
-// says which extraction class an added entity takes and which attribute (if
-// any) carries the value — that attribute is what promotion reads, so the
-// fill flow asks for it explicitly rather than guessing from the span.
+// Column order and labels mirror pipeline/key_entities.KEY_ENTITIES (the
+// reviewer's check order). Each key says which extraction class an added
+// entity takes and which attribute (if any) carries the value — that
+// attribute is what promotion reads, so the fill flow asks for it explicitly
+// rather than guessing from the span.
 const KEY_DEFS=[
   {key:"reserve_price",   label:"Reserve price", cls:"auction_terms",    attr:"reserve_price_num", ask:"Reserve price in rupees (digits only):",
    guess:t=>{const m=String(t).replace(/,/g,"").match(/\d{4,}(?:\.\d+)?/);return m?m[0].split(".")[0]:"";}},
   {key:"auction_date",    label:"Auction date",  cls:"auction_terms",    attr:"auction_start_dt",  ask:"Auction start as YYYY-MM-DDTHH:MM (or as written):",
    guess:t=>String(t).trim()},
+  {key:"full_description",label:"Full description",cls:"full_description",attr:null},
   {key:"property_type",   label:"Property type", cls:"property",         attr:"property_type",     ask:"Property type (e.g. flat, vacant land, land and building):",
    guess:t=>String(t).trim().toLowerCase()},
   {key:"location",        label:"Location",      cls:"location",         attr:"village",           ask:"Village / town (optional — leave blank to keep just the text):",
    guess:()=>"", optional:true},
   {key:"extent",          label:"Extent",        cls:"extent",           attr:"extent_sqft",       ask:"Extent in sq.ft (optional — leave blank if not in sq.ft):",
    guess:t=>{const m=String(t).replace(/,/g,"").match(/(\d+(?:\.\d+)?)\s*sq/i);return m?m[1]:"";}, optional:true},
-  {key:"full_description",label:"Full description",cls:"full_description",attr:null},
   {key:"possession_type", label:"Possession",    cls:"property",         attr:"possession_type",   ask:"Possession type — physical, symbolic or constructive:",
    guess:t=>{const m=String(t).toLowerCase().match(/physical|symbolic|constructive/);return m?m[0]:"";},
    valid:v=>["physical","symbolic","constructive"].includes(v)},

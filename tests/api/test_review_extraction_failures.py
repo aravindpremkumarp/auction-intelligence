@@ -104,6 +104,46 @@ def test_queue_endpoint_forwards_failures_and_rows_carry_them(monkeypatch):
     assert out.rows[0].failures == ["missing-lots", "rerun", "borrower", "ungrounded"]
 
 
+def test_pills_follow_the_review_check_order():
+    """Missing lots → extra lots → reserve → lot order → auction date →
+    description → property type → location → extent → possession, then the rest."""
+    keys = list(ex.EXTRACTION_FAILURES)
+    review = ["missing-lots", "extra-lots", "reserve", "lot-order", "auction-date",
+              "description", "property-type", "location", "extent", "possession"]
+    assert [k for k in keys if k in review] == review
+    assert keys[:len(review) + 3] == review[:6] + ["wrong-lot"] + review[6:8] + \
+        ["not-placed", "district-only"] + review[8:]
+    codes = ke.review_codes([], {}, "")
+    assert ex.row_failures(sorted(codes), None, None, False) == ["auction-date", "possession"]
+
+
+def test_review_codes_flag_lot_order_and_missing_date_and_possession():
+    md = "SALE NOTICE\n\nProperty at Survey A\n\nProperty at Survey B\n"
+
+    def desc(text, lot):
+        s = md.index(text)
+        return {"id": text[-1], "cls": "full_description", "text": text,
+                "start": s, "end": s + len(text), "attrs": {"lot_index": lot}}
+
+    terms = [{"id": f"t{li}", "cls": "auction_terms", "text": "x", "attrs": {
+        "lot_index": li, "auction_start_dt": "2026-11-01T11:00"}} for li in "12"]
+    props = [{"id": f"p{li}", "cls": "property", "text": "x", "attrs": {
+        "lot_index": li, "possession_type": "symbolic"}} for li in "12"]
+    in_order = [desc("Property at Survey A", "1"), desc("Property at Survey B", "2")]
+    assert ke.review_codes(in_order + terms + props, {}, md) == set()
+
+    reversed_ = [desc("Property at Survey A", "2"), desc("Property at Survey B", "1")]
+    assert ke.review_codes(reversed_ + terms + props, {}, md) == {"lot_order_off"}
+
+    # Lot 2 has no possession; marking it "not in notice" clears the code.
+    assert ke.review_codes(in_order + terms + props[:1], {}, md) == {"lot_missing_possession"}
+    marked = {ke.absent_key("2", "possession_type"): {"by": "a", "at": "t"}}
+    assert ke.review_codes(in_order + terms + props[:1], marked, md) == set()
+
+    # No date anywhere → every lot is missing it.
+    assert ke.review_codes(in_order + props, {}, md) == {"lot_missing_auction_date"}
+
+
 def test_row_failures_extra_lots_and_clean_row():
     assert ex.row_failures([], 4, 2, False) == ["extra-lots"]
     assert ex.row_failures(None, 2, 2, False) == []

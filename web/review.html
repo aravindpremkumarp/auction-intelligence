@@ -948,16 +948,18 @@
                   title="fewer lots extracted than the reviewer counted at classification">missing lots</button>
           <button class="pill" data-xflag="extra-lots"
                   title="more lots extracted than the reviewer counted at classification">extra lots</button>
-          <button class="pill" data-xflag="rerun"
-                  title="the markdown or classification changed after this extraction ran — re-run LangExtract">needs re-run</button>
+          <button class="pill" data-xflag="reserve"
+                  title="no reserve price, or fewer reserve prices than lots">no reserve price</button>
+          <button class="pill" data-xflag="lot-order"
+                  title="lots not numbered in the sale notice's order — lot 1 here is not lot 1 of the notice, or pages joined in the wrong order">lot order</button>
+          <button class="pill" data-xflag="auction-date"
+                  title="a lot with no auction date">no auction date</button>
           <button class="pill" data-xflag="description"
                   title="a lot with no full description block, or a description that stops before details the lot has (survey no., extent, boundaries)">description gaps</button>
           <button class="pill" data-xflag="wrong-lot"
                   title="a detail tagged to one lot that sits in another lot's description — the lot number is wrong">wrong lot</button>
-          <button class="pill" data-xflag="reserve"
-                  title="no reserve price, or fewer reserve prices than lots">no reserve price</button>
-          <button class="pill" data-xflag="borrower"
-                  title="no borrower, or fewer borrowers than lots">no borrower</button>
+          <button class="pill" data-xflag="property-type"
+                  title="a property lot with no property type">no property type</button>
           <button class="pill" data-xflag="location"
                   title="no location, or some lots have none">no location</button>
           <button class="pill" data-xflag="not-placed"
@@ -966,8 +968,12 @@
                   title="a Tamil Nadu lot placed only to its district — no taluk, town or village matched">district only</button>
           <button class="pill" data-xflag="extent"
                   title="no extent (area) anywhere in the notice">no extent</button>
-          <button class="pill" data-xflag="property-type"
-                  title="a property lot with no property type">no property type</button>
+          <button class="pill" data-xflag="possession"
+                  title="a lot with no possession type, or one that is not physical, symbolic or constructive">no possession</button>
+          <button class="pill" data-xflag="rerun"
+                  title="the markdown or classification changed after this extraction ran — re-run LangExtract">needs re-run</button>
+          <button class="pill" data-xflag="borrower"
+                  title="no borrower, or fewer borrowers than lots">no borrower</button>
           <button class="pill" data-xflag="uds"
                   title="a flat with no undivided share (UDS), or the parent plot's area recorded as the flat's own">UDS problem</button>
           <button class="pill" data-xflag="creditor"

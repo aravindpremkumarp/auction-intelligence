@@ -89,7 +89,7 @@ def test_queue_rows_carry_key_summary(monkeypatch):
     (r,) = out.rows
     assert r.key_score == round(100 * 3 / 7)
     assert r.key_missing == 4
-    assert r.key_missing_labels[0] == "lot 1: location"
+    assert r.key_missing_labels[0] == "lot 1: full description"
 
 
 def test_queue_forwards_keys_sort_and_missing_filter(monkeypatch):
