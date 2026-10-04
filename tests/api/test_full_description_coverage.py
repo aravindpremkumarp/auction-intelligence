@@ -285,8 +285,9 @@ def test_one_span_tagged_to_several_lots_is_the_nearest_lots():
     fd2, fd50 = "Lot 2: a flat in Kattangulathur.", "Lot 50: a plot in Kundrathur."
     village = "KUNDRATHUR 'B' VILLAGE, Kundrathur Taluk"
     ex = [_block(page, fd2, lot="2"), _block(page, fd50, lot="50"),
-          _at(page, "location", "Kattangulathur", lot="2"),      # lot 2's own
-          _at(page, "location", village, lot="2"), _at(page, "location", village, lot="50")]
+          _at(page, "location", "Kattangulathur", lot="2", village="Kattangulathur"),  # own
+          _at(page, "location", village, lot="2", village="Kundrathur 'B'"),
+          _at(page, "location", village, lot="50", village="Kundrathur 'B'")]
     cov = full_description_coverage(ex, page)
     assert cov["lots_incomplete"] == {}       # lot 50's block names Kundrathur
     assert cov["lots_wrong_lot"] == {"2": ["location"]}
@@ -359,3 +360,18 @@ def test_a_reviewer_added_detail_is_never_called_a_mislabel():
     cov = full_description_coverage(ex, page)
     assert cov["lots_wrong_lot"] == {}
     assert cov["lots_excused"] == {"1": {"reviewer": ["identifier"]}}
+
+
+def test_a_location_copy_adding_a_taluk_to_the_lots_own_village_is_complementary():
+    """The lot says "Azad Road, Lalugapuram"; a copy adds the registration
+    district. It names no other village, so it fills in, not mislabels."""
+    reg = "Tirunelveli Registration District"
+    fd1 = "Lot 1: house at Azad Road, Lalugapuram, " + reg + "."
+    fd2 = "Lot 2: shop at Palayamkottai."
+    page = fd1 + " " + "x" * 200 + " " + fd2
+    ex = [_block(page, fd1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "location", "Palayamkottai", lot="2", village="Palayamkottai"),
+          _at(page, "location", reg, lot="2")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_wrong_lot"] == {}
+    assert cov["lots_excused"].get("2") == {"complements": ["location"]}
