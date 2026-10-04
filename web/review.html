@@ -960,6 +960,10 @@
                   title="no borrower, or fewer borrowers than lots">no borrower</button>
           <button class="pill" data-xflag="location"
                   title="no location, or some lots have none">no location</button>
+          <button class="pill" data-xflag="not-placed"
+                  title="a Tamil Nadu lot whose location was read but matched no district, taluk, town or village">not placed</button>
+          <button class="pill" data-xflag="district-only"
+                  title="a Tamil Nadu lot placed only to its district — no taluk, town or village matched">district only</button>
           <button class="pill" data-xflag="extent"
                   title="no extent (area) anywhere in the notice">no extent</button>
           <button class="pill" data-xflag="property-type"
@@ -2857,10 +2861,15 @@
     const missLabels = (row.key_missing || 0) && (row.key_missing_labels || []).length
       ? `<span class="meta xr-miss">${escapeHtml((row.key_missing_labels || []).slice(0, 4).join(' · '))}${(row.key_missing_labels || []).length > 4 ? ' · …' : ''}</span>`
       : '';
+    // Lots that read a place but matched none: which lot, and what it gave.
+    const unplaced = row.unplaced_labels || [];
+    const placeLabels = unplaced.length
+      ? `<span class="meta xr-miss" title="${escapeHtml(unplaced.slice(0, 20).join('\n'))}">${escapeHtml(unplaced.slice(0, 3).join(' · '))}${unplaced.length > 3 ? ' · …' : ''}</span>`
+      : '';
     const summary = document.createElement('summary');
     summary.innerHTML = `
       <span class="nfile">${escapeHtml(filename)}</span>
-      ${batch} ${keysPill(row)} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields} ${failurePills(row)} ${missLabels}
+      ${batch} ${keysPill(row)} ${extractionScorePill(row)} ${extractionStatusPill(row)} ${lots} ${ungrounded} ${stale} ${fields} ${failurePills(row)} ${missLabels} ${placeLabels}
       <span class="nspacer"></span>
       <span class="nlinks">
         <a class="link" href="${href}">review extraction ↗</a>

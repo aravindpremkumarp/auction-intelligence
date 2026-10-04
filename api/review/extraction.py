@@ -202,6 +202,9 @@ class ExtractionQueueRow(BaseModel):
     key_score: int | None = None
     key_missing: int | None = None
     key_missing_labels: list[str] = []
+    # Lots that read a place but matched none ("lot 3: Kottur — no district"),
+    # so the "not placed" / "district only" pills say which lot and why.
+    unplaced_labels: list[str] = []
     # Failure-filter keys this row carries (EXTRACTION_FAILURES, bar order), so
     # the card names what is wrong before the reviewer opens it.
     failures: list[str] = []
@@ -325,6 +328,10 @@ _STALE_CYPHER = (
     "coalesce(d.markdown_reextracted_at > d.extraction_at, false)"
     " OR coalesce(d.markdown_loaded_at > d.extraction_at, false)"
     " OR coalesce(d.extraction_stale_at > d.extraction_at, false)))")
+#: A Tamil Nadu lot placed to no village, town or taluk (pipeline/promote_extractions
+#: .lot_place): what "not placed" and "district only" split by district.
+_UNPLACED_LOT = ("coalesce(_l.place_status, '') <> 'outside-tamil-nadu' "
+                 "AND _l.place_town IS NULL AND _l.taluk IS NULL")
 EXTRACTION_FAILURES: dict[str, dict] = {
     # Only the reviewer's own lot count, never validators.py lot_under_recall:
     # that heuristic counts "S.No" markers, which survey numbers also carry,
@@ -339,6 +346,14 @@ EXTRACTION_FAILURES: dict[str, dict] = {
     "reserve":       {"codes": ("missing_reserve_price", "lot_missing_reserve")},
     "borrower":      {"codes": ("missing_borrower", "lot_missing_borrower")},
     "location":      {"codes": ("missing_location", "lot_missing_location")},
+    # Read but not placed: the lot HAS a location, it just matched nothing
+    # official (pipeline/place_resolution), so "location" never fires on it.
+    # Live, from the lots — place resolution runs after extraction and stamps
+    # nothing on the Document. Lots out of Tamil Nadu are not a failure.
+    "not-placed":    {"codes": (), "cypher": f"EXISTS {{ MATCH (d)-[:HAS_LOT]->(_l:Lot) "
+                                             f"WHERE {_UNPLACED_LOT} AND _l.district IS NULL }}"},
+    "district-only": {"codes": (), "cypher": f"EXISTS {{ MATCH (d)-[:HAS_LOT]->(_l:Lot) "
+                                             f"WHERE {_UNPLACED_LOT} AND _l.district IS NOT NULL }}"},
     "extent":        {"codes": ("missing_extent",)},
     "property-type": {"codes": ("missing_property_type",)},
     "uds":           {"codes": ("missing_uds", "uds_parent_as_own_area")},
@@ -353,6 +368,7 @@ EXTRACTION_FAILURES: dict[str, dict] = {
     "dropped":       {"codes": (), "cypher": "coalesce(d.extraction_dropped > 0, false)"},
 }
 _EVIDENCE_PILLS = ("contested", "fuzzy", "illegible", "dropped")
+_PLACE_PILLS = ("not-placed", "district-only")
 
 
 def _failure_codes(failures: list[str] | None) -> list[str]:
@@ -389,10 +405,35 @@ def row_failures(issue_codes, extracted_lots: int | None,
             hit = extracted_lots > expected_lots
         elif key == "rerun":
             hit = stale
-        elif key in _EVIDENCE_PILLS:
+        elif key in _EVIDENCE_PILLS or key in _PLACE_PILLS:
             hit = bool((evidence or {}).get(key))
         if hit:
             out.append(key)
+    return out
+
+
+def place_pills(unplaced_lots: list[dict] | None) -> dict[str, bool]:
+    """Which place pills a row's unplaced lots raise — the same split as the
+    "not-placed" / "district-only" Cypher, so a card shows the pill that
+    brought it into the filtered list."""
+    lots = unplaced_lots or []
+    return {"not-placed": any(not u.get("district") for u in lots),
+            "district-only": any(u.get("district") for u in lots)}
+
+
+def _lot_order(u: dict) -> tuple:
+    lot = str(u.get("lot") or "")
+    return (0, int(lot), "") if lot.isdigit() else (1, 0, lot)
+
+
+def unplaced_labels(unplaced_lots: list[dict] | None) -> list[str]:
+    """"lot 3: Kottur — no district" / "lot 2: Kanavoyapatti, Dindigul —
+    district only", in lot order: what the notice gave, and how far it got."""
+    out = []
+    for u in sorted(unplaced_lots or [], key=_lot_order):
+        place = ", ".join(x for x in (u.get("village"), u.get("district")) if x)
+        reach = "district only" if u.get("district") else "no district"
+        out.append(f"lot {u.get('lot') or '?'}: {place or 'no village read'} — {reach}")
     return out
 
 
@@ -497,7 +538,10 @@ def list_extraction_queue(status: str | None, limit: int, sort: str = "recent",
                d.extraction_issue_codes AS issue_codes,
                d.extraction_contested AS contested, d.extraction_fuzzy AS fuzzy,
                d.extraction_illegible AS illegible, d.extraction_dropped AS dropped,
-               d.extraction_reader AS reader
+               d.extraction_reader AS reader,
+               [(d)-[:HAS_LOT]->(_l:Lot) WHERE {_UNPLACED_LOT} |
+                {{lot: toString(_l.lot_index), village: _l.village_raw,
+                  district: _l.district}}] AS unplaced_lots
         ORDER BY {order}
         LIMIT $limit
         """,
@@ -1035,8 +1079,10 @@ def extraction_queue(
             stitched_pages=len(r.get("stitched_pages") or [r["filename"]]),
             key_score=keys["score"], key_missing=keys["missing"],
             key_missing_labels=keys["missing_labels"],
+            unplaced_labels=unplaced_labels(r.get("unplaced_lots")),
             failures=row_failures(r.get("issue_codes"), extracted, expected, stale,
-                                  {k: r.get(k) for k in _EVIDENCE_PILLS})))
+                                  {**{k: r.get(k) for k in _EVIDENCE_PILLS},
+                                   **place_pills(r.get("unplaced_lots"))})))
     # A genuine count, not len(out): the row list is capped by $limit, and the
     # "Confirm all N in range" button acts on the whole matching set — so a
     # capped total would understate what the button is about to verify.
