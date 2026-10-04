@@ -1285,3 +1285,101 @@ def test_the_two_pin_tables_merge_and_a_disagreement_drops_the_pin(tmp_path):
         "603203": "Chengalpattu", "605701": "Vridhachalam"}
     assert load_pin_taluks(tmp_path / "none.json",
                            india_post=tmp_path / "none2.json") == {}
+
+
+# ── Taluks split since 2011 ──────────────────────────────────────────────────
+
+_LINEAGE = {
+    "taluks": {
+        "Dindigul": {"district": "Dindigul",
+                     "now": {"Dindiguleast": 43, "Dindigulwest": 25}},
+        "Coimbatore North": {"district": "Coimbatore",
+                             "now": {"Annur": 27, "Coimbatore North": 13}},
+        "Coimbatore South": {"district": "Coimbatore",
+                             "now": {"Madukkari": 11, "Coimbatore South": 7}},
+        "Tiruchengode": {"district": "Namakkal",
+                         "now": {"Tiruchengode": 88, "Kumarapalayam": 18}},
+    },
+    "villages": {
+        "Dindigul": {"totanutu": ["Dindiguleast", "Thottanuthu"]},
+        "Tiruchengode": {"palampalayam": ["Kumarapalayam", "Pallipalayam"]},
+    },
+}
+
+
+def _lineage_gaz():
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(
+        districts=["Dindigul", "Coimbatore", "Namakkal"],
+        taluks=[("Dindigul East", "Dindigul"), ("Dindigul West", "Dindigul"),
+                ("Annur", "Coimbatore"), ("Coimbatore North", "Coimbatore"),
+                ("Madukkarai", "Coimbatore"), ("Coimbatore South", "Coimbatore"),
+                ("Tiruchengode", "Namakkal"), ("Kumarapalayam", "Namakkal")],
+        villages=[("Thottanuthu", "Dindigul East", "Dindigul"),
+                  ("Adalur", "Dindigul West", "Dindigul"),
+                  ("Kovilpalayam", "Annur", "Coimbatore"),
+                  ("Pallipalayam", "Kumarapalayam", "Namakkal"),
+                  ("Elachipalayam", "Tiruchengode", "Namakkal")])
+
+
+def _stuck(district, status="no-parent-taluk", taluk=None):
+    return {"district": district, "taluk": taluk, "village": None, "village_parts": [],
+            "village_status": status, "village_source": None, "district_source": "district"}
+
+
+def test_a_village_of_a_split_taluk_is_found_where_it_moved():
+    from pipeline.place_resolution import lineage_place
+    out = lineage_place(_lineage_gaz(), _stuck("Dindigul"), "Thottanthu", "Dindigul", _LINEAGE)
+    assert (out["taluk"], out["village"], out["village_source"]) == \
+        ("Dindigul East", "Thottanuthu", "census-2011")
+
+
+def test_a_village_still_under_an_old_name_that_is_a_taluk_today_moves_too():
+    """"Tiruchengode" is still a taluk, so the resolver looks there and misses:
+    the village went to Kumarapalayam."""
+    from pipeline.place_resolution import lineage_place
+    res = _stuck("Namakkal", status="unmatched", taluk="Tiruchengode")
+    out = lineage_place(_lineage_gaz(), res, "Pallipalayam", "Tiruchengode", _LINEAGE)
+    assert (out["taluk"], out["village"]) == ("Kumarapalayam", "Pallipalayam")
+
+
+def test_without_its_own_record_the_village_must_be_in_exactly_one_new_taluk():
+    from pipeline.place_resolution import lineage_place
+    out = lineage_place(_lineage_gaz(), _stuck("Dindigul"), "Adalur", "Dindigul", _LINEAGE)
+    assert (out["taluk"], out["village"]) == ("Dindigul West", "Adalur")
+    nowhere = _stuck("Dindigul")
+    assert lineage_place(_lineage_gaz(), nowhere, "Nosuchur", "Dindigul", _LINEAGE) == nowhere
+
+
+def test_a_bare_name_covers_both_halves_of_a_taluk_split_before_2011():
+    from pipeline.place_resolution import lineage_place
+    out = lineage_place(_lineage_gaz(), _stuck("Coimbatore"), "Kovilpalayam",
+                        "Coimbatore", _LINEAGE)
+    assert (out["taluk"], out["village"]) == ("Annur", "Kovilpalayam")
+
+
+def test_a_new_taluk_outside_the_known_district_is_refused():
+    from pipeline.place_resolution import lineage_place
+    res = _stuck("Coimbatore")
+    assert lineage_place(_lineage_gaz(), res, "Thottanthu", "Dindigul", _LINEAGE) == res
+
+
+def test_a_misspelt_taluk_reaches_its_lineage_through_the_alias_table():
+    from pipeline.place_resolution import lineage_place
+    res = _stuck("Namakkal")
+    out = lineage_place(_lineage_gaz(), res, "Pallipalayam", "Trichengode", _LINEAGE)
+    assert (out["taluk"], out["village"]) == ("Kumarapalayam", "Pallipalayam")
+
+
+def test_the_lineage_rule_leaves_placed_lots_and_empty_tables_alone():
+    from pipeline.place_resolution import lineage_place
+    placed = {**_stuck("Dindigul"), "village": "Adalur", "village_status": "resolved"}
+    assert lineage_place(_lineage_gaz(), placed, "Adalur", "Dindigul", _LINEAGE) == placed
+    res = _stuck("Dindigul")
+    assert lineage_place(_lineage_gaz(), res, "Adalur", "Dindigul", {}) == res
+    assert lineage_place(_lineage_gaz(), res, "Adalur", None, _LINEAGE) == res
+
+
+def test_no_lineage_table_no_lineage(tmp_path):
+    from pipeline.place_resolution import load_taluk_lineage
+    assert load_taluk_lineage(tmp_path / "missing.json") == {}

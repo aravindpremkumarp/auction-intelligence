@@ -145,3 +145,37 @@ def test_stamp_writes_codes_and_lot_count(monkeypatch):
     assert row["lots"] == 1 and "missing_borrower" in row["codes"]
     assert "d.extraction_issue_codes = row.codes" in written["c"]
     assert "d.extraction_lot_count   = row.lots" in written["c"]
+
+
+# ── read but not placed ──────────────────────────────────────────────────────
+
+_UNPLACED = [{"lot": "12", "village": "Senkundram", "district": None},
+             {"lot": "1", "village": "Vardharajapuram", "district": "Kancheepuram"},
+             {"lot": "2", "village": None, "district": None}]
+
+
+def test_place_pills_split_unplaced_lots_by_district():
+    assert ex.place_pills(_UNPLACED) == {"not-placed": True, "district-only": True}
+    assert ex.place_pills(_UNPLACED[1:2]) == {"not-placed": False, "district-only": True}
+    assert ex.place_pills(None) == {"not-placed": False, "district-only": False}
+
+
+def test_a_row_carries_the_place_pills_its_lots_raise():
+    assert ex.row_failures([], None, None, False, ex.place_pills(_UNPLACED[:1])) == ["not-placed"]
+    assert ex.row_failures([], None, None, False, ex.place_pills([])) == []
+
+
+def test_unplaced_labels_name_the_lot_what_it_gave_and_how_far_it_got():
+    assert ex.unplaced_labels(_UNPLACED) == [
+        "lot 1: Vardharajapuram, Kancheepuram — district only",
+        "lot 2: no village read — no district",
+        "lot 12: Senkundram — no district"]
+
+
+def test_the_place_pills_read_lots_and_skip_out_of_state_ones():
+    for key in ("not-placed", "district-only"):
+        cypher = ex.EXTRACTION_FAILURES[key]["cypher"]
+        assert "(d)-[:HAS_LOT]->(_l:Lot)" in cypher
+        assert "outside-tamil-nadu" in cypher
+    assert "_l.district IS NULL" in ex.EXTRACTION_FAILURES["not-placed"]["cypher"]
+    assert "_l.district IS NOT NULL" in ex.EXTRACTION_FAILURES["district-only"]["cypher"]
