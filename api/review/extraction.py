@@ -107,10 +107,23 @@ class KeyCell(BaseModel):
     unfound: bool = False            # looked for, not found: check the image
 
 
+class DescriptionGap(BaseModel):
+    """A detail of a lot its full_description does not cover
+    (pipeline/validators.full_description_coverage)."""
+    kind: str                        # 'incomplete' | 'wrong_lot'
+    cls: str                         # the detail's class: boundary, identifier, ...
+    text: str = ""
+    field_id: str | None = None      # the entity to jump to
+    in_lot: str | None = None        # wrong_lot: the lot whose description holds it
+
+
 class KeyLot(BaseModel):
     lot_index: str
     extracted: bool = True           # False: counted at classification, never emitted
     cells: dict[str, KeyCell]
+    # Why this lot is behind the "description gaps" / "wrong lot" pill: the
+    # details its description misses, or that sit in another lot's description.
+    description_gaps: list[DescriptionGap] = []
 
 
 class KeyChecklist(BaseModel):
@@ -1116,6 +1129,10 @@ def extraction_detail(
     expected = int(elc) if elc is not None else None
     keys = key_checklist_from_stored(row.get("extraction_json"),
                                      row.get("corrections_json"), expected)
+    gaps = description_gaps(row.get("extraction_json"), row.get("corrections_json"),
+                            row.get("markdown"))
+    for lot in keys.get("lots") or []:
+        lot["description_gaps"] = gaps.get(str(lot.get("lot_index")), [])
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"), score=row.get("score"),
@@ -1133,6 +1150,20 @@ def extraction_detail(
                              row.get("markdown"), stale),
         orphaned=_orphaned(row.get("corrections_json")),
     )
+
+
+def description_gaps(extraction_json: str | None, corrections_json: str | None,
+                     markdown: str | None) -> dict[str, list[dict]]:
+    """lot_index -> the details that put the lot behind the "description gaps"
+    or "wrong lot" pill — the same check, on the same entities (reviewer
+    corrections applied), as the stamped issue codes the pill filters on."""
+    from pipeline.apply_extractions import entities_with_corrections
+    from pipeline.validators import full_description_coverage, shim_stored
+    ents = entities_with_corrections(extraction_json or "[]", corrections_json)
+    cov = full_description_coverage(shim_stored(ents), markdown or "")
+    return {lot: [{"kind": d["kind"], "cls": d["cls"], "text": d["text"],
+                   "field_id": d["id"], "in_lot": d["in_lot"]} for d in items]
+            for lot, items in cov["details"].items()}
 
 
 def _orphaned(corrections_json: str | None) -> list[dict]:
