@@ -28,7 +28,8 @@ WHERE d.extraction_prev_json IS NOT NULL AND ({predicate})
 RETURN d.filename AS fn, coalesce(d.stitched_markdown, d.markdown) AS md,
        d.extraction_json AS cur, d.extraction_prev_json AS prev,
        d.extraction_prev_reader AS prev_reader, d.extraction_corrections_json AS cj,
-       d.extraction_reader AS reader
+       d.extraction_reader AS reader,
+       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS elc
 {limit}
 """
 
@@ -64,7 +65,8 @@ def revert(row: dict, dry_run: bool) -> dict:
     except json.JSONDecodeError:
         return {"fn": row["fn"], "status": "skip: previous read unreadable"}
     cj, report = carry_corrections(row.get("cur"), row.get("cj"), prev)
-    score = validate_stored(prev, source_text=row.get("md") or "")["score"]
+    score = validate_stored(prev, source_text=row.get("md") or "",
+                            expected_lot_count=row.get("elc"))["score"]
     if not dry_run:
         run_query(REVERT, {"fn": row["fn"], "prev": row["prev"], "prev_reader": row.get("prev_reader") or "langextract",
                            "cj": cj, "cur": row.get("cur"), "reader": row.get("reader"),

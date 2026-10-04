@@ -350,7 +350,8 @@ def extracted_lot_count(entities: list[dict]) -> int | None:
 
 def issue_codes_from_stored(extraction_json: str | None,
                             corrections_json: str | None,
-                            markdown: str | None = None) -> list[str]:
+                            markdown: str | None = None,
+                            expected_lot_count: int | None = None) -> list[str]:
     """The pipeline/validators.py issue codes for this document as it stands
     now — the model's entities with the reviewer's corrections and added
     entities applied, so a filled gap drops out of its failure filter.
@@ -360,7 +361,8 @@ def issue_codes_from_stored(extraction_json: str | None,
     from pipeline.apply_extractions import entities_with_corrections
     from pipeline.validators import validate_stored
     ents = entities_with_corrections(extraction_json or "[]", corrections_json)
-    report = validate_stored(ents, source_text=markdown or "")
+    report = validate_stored(ents, source_text=markdown or "",
+                             expected_lot_count=expected_lot_count)
     codes = {i["code"] for i in report["issues"]}
     codes.update(review_codes(ents, _loads(corrections_json, {}), markdown))
     return sorted(codes)
@@ -428,8 +430,9 @@ def stamp_key_scores(filenames: list[str], chunk: int = 200) -> int:
                                           int(elc) if elc is not None else None)
             out.append({"filename": r["filename"], "score": k["score"],
                         "missing": k["missing"],
-                        "codes": issue_codes_from_stored(r.get("ej"), r.get("cj"),
-                                                         r.get("md")),
+                        "codes": issue_codes_from_stored(
+                            r.get("ej"), r.get("cj"), r.get("md"),
+                            int(elc) if elc is not None else None),
                         "lots": extracted_lot_count(_loads(r.get("ej"), []))})
         if not out:
             continue

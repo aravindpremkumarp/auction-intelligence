@@ -107,8 +107,10 @@ def judge(old: list[dict], new: list[dict], text: str,
         losses += [f"lot {li}: {_PART_LABELS[k]}" for k in sorted(before - after)]
         gains += [f"lot {li}: {_PART_LABELS[k]}" for k in sorted(after - before)]
 
-    s_old = validate_stored(old, source_text=text)["score"]
-    s_new = validate_stored(new, source_text=text)["score"]
+    s_old = validate_stored(old, source_text=text,
+                            expected_lot_count=expected_lot_count)["score"]
+    s_new = validate_stored(new, source_text=text,
+                            expected_lot_count=expected_lot_count)["score"]
     if s_new < s_old:
         losses.append(f"score {s_old} → {s_new}")
     elif s_new > s_old:
@@ -232,7 +234,8 @@ def best(old: list[dict], new: list[dict], text: str,
     for merged in (merge(old, new), merge(new, old)):
         ok, g, l = judge(old, merged, text, expected_lot_count)
         if ok:
-            score = validate_stored(merged, source_text=text)["score"]
+            score = validate_stored(merged, source_text=text,
+                                    expected_lot_count=expected_lot_count)["score"]
             candidates.append((score, len(g), merged, g, l))
     if not candidates:
         return None, "", gains, losses

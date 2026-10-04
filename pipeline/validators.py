@@ -49,11 +49,12 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 7   # 4: full_description_incomplete stops charging details
+SCORE_VERSION = 8   # 4: full_description_incomplete stops charging details
                     # that are not a truncation; detail_wrong_lot (med) added
                     # 5: one span tagged to several lots is the nearest lot's
                     # 6: wrong_lot only when the lot has its own such detail
                     # 7: never for a header sentence, a status, or a reviewer's add
+                    # 8: lot_under_recall against the reviewer's lot count when known
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -425,7 +426,8 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
     }
 
 
-def validate(extractions, source_text: str = "") -> dict:
+def validate(extractions, source_text: str = "",
+             expected_lot_count: int | None = None) -> dict:
     issues: list[dict] = []
 
     def flag(code, severity, msg):
@@ -624,8 +626,17 @@ def validate(extractions, source_text: str = "") -> dict:
                "(total_area/extent_sqft) — for a flat that value belongs only in "
                "uds_parent_extent")
 
-    # ── multi-lot recall heuristic ───────────────────────────────────────────
-    if source_text:
+    # ── multi-lot recall ─────────────────────────────────────────────────────
+    # The reviewer's lot count is the truth when there is one. The "S.No"
+    # marker count is only a fallback: it also matches table headers and
+    # survey numbers, and on the reviewed corpus nearly every flag it raised
+    # was on a notice whose lots were all read.
+    if expected_lot_count is not None:
+        if len(lots) < expected_lot_count:
+            flag("lot_under_recall", "med",
+                 f"{len(lots)} lot(s) extracted but the reviewer counted "
+                 f"{expected_lot_count}")
+    elif source_text:
         markers = len(_LOT_MARKER.findall(source_text))
         # crude: many lot markers but few distinct lots extracted -> under-recall
         if markers >= 3 and len(lots) * 2 < markers:
@@ -671,7 +682,8 @@ def validate(extractions, source_text: str = "") -> dict:
     }
 
 
-def validate_stored(entities: list[dict], source_text: str = "") -> dict:
+def validate_stored(entities: list[dict], source_text: str = "",
+                    expected_lot_count: int | None = None) -> dict:
     """validate() for entities already persisted as Document.extraction_json dicts
     ({id, cls, text, start, end, attrs}), e.g. for a from-graph batch report
     (pipeline/extract_batch.py --from-graph) or backfilling a score onto
@@ -680,7 +692,8 @@ def validate_stored(entities: list[dict], source_text: str = "") -> dict:
     Shims each dict to the attribute shape validate() expects (extraction_class /
     attributes / char_interval) — no LLM call, pure re-validation of stored output.
     """
-    return validate(shim_stored(entities), source_text=source_text)
+    return validate(shim_stored(entities), source_text=source_text,
+                    expected_lot_count=expected_lot_count)
 
 
 def shim_stored(entities: list[dict]) -> list:

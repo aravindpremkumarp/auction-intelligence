@@ -98,7 +98,9 @@ def measure(d: dict, group: str) -> dict:
                       else "whole")}
     old = _stored(d["filename"])
     row["old_lots"] = lots_read(old)
-    row["old_score"] = validate_stored(old, source_text=d["md"])["score"] if old else None
+    row["old_score"] = (validate_stored(old, source_text=d["md"],
+                                          expected_lot_count=d.get("expected_lot_count"))["score"]
+                         if old else None)
     t0 = time.time()
     try:
         new, _model = read_notice(d, route=True)
@@ -107,7 +109,9 @@ def measure(d: dict, group: str) -> dict:
         return row
     row["seconds"] = round(time.time() - t0)
     row["new_lots"] = lots_read(new)
-    row["new_score"] = validate_stored(new, source_text=d["md"])["score"] if new else None
+    row["new_score"] = (validate_stored(new, source_text=d["md"],
+                                          expected_lot_count=d.get("expected_lot_count"))["score"]
+                         if new else None)
     row["entities"] = new
     return row
 

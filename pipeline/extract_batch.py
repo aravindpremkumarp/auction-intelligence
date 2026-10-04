@@ -99,7 +99,9 @@ def load_from_graph(limit: int | None) -> list[tuple]:
         "WITH d, collect(a.auction_id) AS aids "
         "RETURN coalesce(aids[0], d.storage_key, d.filename) AS aid, "
         "       coalesce(d.stitched_markdown, d.markdown) AS md, "
-        "       d.extraction_json AS ej ORDER BY aid"
+        "       d.extraction_json AS ej, "
+        "       coalesce(d.stitched_expected_lot_count, d.expected_lot_count) AS elc "
+        "ORDER BY aid"
         + (f" LIMIT {int(limit)}" if limit else ""),
         max_rows=20_000, timeout=120.0)
     out: list[tuple] = []
@@ -108,7 +110,7 @@ def load_from_graph(limit: int | None) -> list[tuple]:
             ents = json.loads(r["ej"] or "[]")
         except json.JSONDecodeError:
             ents = []
-        out.append((r["aid"], r["md"] or "", ents))
+        out.append((r["aid"], r["md"] or "", ents, r.get("elc")))
     return out
 
 
@@ -160,8 +162,9 @@ def run(docs: list, batch_size: int, from_graph: bool = False) -> None:
                 if from_graph:
                     # Already-extracted entities from Document.extraction_json —
                     # validate (pure, no LLM) instead of re-extracting.
-                    aid, md, entities = item
-                    v = validate_stored(entities, source_text=md)
+                    aid, md, entities, elc = item
+                    v = validate_stored(entities, source_text=md,
+                                        expected_lot_count=elc)
                 else:
                     aid, md = item
                     res = _extract_robust(md)

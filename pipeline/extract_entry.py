@@ -74,7 +74,8 @@ def read_document(d: dict, route: bool = True, *, reader: str | None = None,
             save, gains, losses = judge(ents, v2_ents, d["md"], d.get("expected_lot_count"))
             meta["shadow"] = {
                 "entities": v2_ents, "model": v2_model,
-                "score": validate_stored(v2_ents, source_text=d["md"])["score"],
+                "score": validate_stored(v2_ents, source_text=d["md"],
+                                         expected_lot_count=d.get("expected_lot_count"))["score"],
                 "telemetry": v2_meta.get("telemetry"), "segmentation": v2_meta.get("segmentation"),
                 "dropped": len(v2_meta.get("dropped") or []),
                 "judge": {"v2_better": bool(save), "gains": gains[:20], "losses": losses[:20]},
