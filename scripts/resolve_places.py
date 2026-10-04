@@ -54,7 +54,8 @@ from collections import Counter, defaultdict
 from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    load_taluk_neighbours, load_towns, neighbour_taluk_place, out_of_area,
+    load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
+    neighbour_taluk_place, out_of_area,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
@@ -312,6 +313,7 @@ def run(*, dry_run: bool = False) -> dict:
     pin_taluks = load_pin_taluks()
     neighbours = load_taluk_neighbours()
     towns = load_towns()
+    lineage = load_taluk_lineage()
     settled = settled_conflicts(decisions)
     print(f"{len(props)} propert(ies); gazetteer has "
           f"{len(gaz.districts)} districts, {len(gaz.taluks)} taluks, "
@@ -364,6 +366,7 @@ def run(*, dry_run: bool = False) -> dict:
                                pin_taluks=pin_taluks)
         res = district_sound_place(gaz, res, village)
         res = neighbour_taluk_place(gaz, res, village, neighbours)
+        res = lineage_place(gaz, res, village, taluk, lineage)
         # Last, the town the property's own text calls a town: a property
         # inside a town owes no village, and a town inside one taluk gives the
         # taluk the notice left out (place_resolution.town_place).

@@ -68,7 +68,8 @@ from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
-    load_taluk_neighbours, load_towns, neighbour_taluk_place, out_of_area,
+    load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
+    neighbour_taluk_place, out_of_area,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
@@ -309,6 +310,7 @@ _SRO_TALUKS: dict[str, str] | None = None
 _PIN_TALUKS: dict[str, str] | None = None
 _TALUK_NEIGHBOURS: dict[str, tuple[str, ...]] | None = None
 _TOWNS: dict[str, dict] | None = None
+_TALUK_LINEAGE: dict | None = None
 
 
 def sro_taluks() -> dict[str, str]:
@@ -338,6 +340,14 @@ def towns() -> dict[str, dict]:
     if _TOWNS is None:
         _TOWNS = load_towns()
     return _TOWNS
+
+
+def taluk_lineage() -> dict:
+    """The Census 2011 → today taluk lineage (scripts/census2011_taluk_lineage)."""
+    global _TALUK_LINEAGE
+    if _TALUK_LINEAGE is None:
+        _TALUK_LINEAGE = load_taluk_lineage()
+    return _TALUK_LINEAGE
 
 
 def lot_pin(rec: dict) -> str | None:
@@ -420,6 +430,10 @@ def lot_place(rec: dict) -> dict:
         pin=lot_pin(rec), pin_taluks=pin_taluks())
     hinted = district_sound_place(gaz, hinted, loc.get("village"))
     hinted = neighbour_taluk_place(gaz, hinted, loc.get("village"), taluk_neighbours())
+    # Then the taluk the village has moved to since 2011, when the notice
+    # still names the taluk as it was (place_resolution.lineage_place).
+    hinted = lineage_place(gaz, hinted, loc.get("village"), loc.get("taluk"),
+                           taluk_lineage())
     # Last, the town the lot's own text calls a town ("Villupuram Town",
     # "Ponneri Municipality"): a property inside a town owes no village, and a
     # town inside one taluk gives the taluk the notice left out.

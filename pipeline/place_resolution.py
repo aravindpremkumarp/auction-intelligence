@@ -307,6 +307,17 @@ TALUK_ALIASES = {
     "viruthunagar":        "Virudhunagar",
     "wailabad":            "Walajabad",
     "walajapet":           "Walajah",
+    # Spellings no rule reads, on lots no other field placed (2026-10). The
+    # Census 2011 names ("Tiruchirappalli") are not taluks today, so the
+    # gazetteer passes over them; the 2011 lineage (lineage_place) reads them.
+    "chengleput":          "Chengalpattu",
+    "chengelpet":          "Chengalpattu",
+    "chenglepet":          "Chengalpattu",
+    "trichengode":         "Tiruchengode",
+    "tuticorin":           "Thoothukudi",
+    "vilavangode":         "Vilavamcode",
+    "trichy":              "Tiruchirappalli",
+    "tiruchy":             "Tiruchirappalli",
 }
 
 # Chennai is fully urban and keeps no revenue villages, so 12 of its taluks
@@ -1302,6 +1313,10 @@ PIN_TALUKS = Path(__file__).resolve().parent / "lookups" / "pin_taluks.json"
 #: {pin: {"taluk", "offices", "voting", "share"}} from India Post's directory:
 #: each office named after one gazetteer village votes for its taluk.
 INDIA_POST_PINS = Path(__file__).resolve().parent / "lookups" / "pin_taluks_indiapost.json"
+#: {"taluks": {2011 taluk: {"district", "now": {taluk: villages}}},
+#:  "villages": {2011 taluk: {folded village: [taluk now, village now]}}} —
+#: the Census 2011 village directory joined to LGD's (scripts/census2011_taluk_lineage).
+TALUK_LINEAGE = Path(__file__).resolve().parent / "lookups" / "taluk_lineage.json"
 #: A Tamil Nadu PIN code: 600 000–649 999, "603 203" or "603203".
 _PIN = re.compile(r"\b(6[0-4]\d)\s?(\d{3})\b")
 
@@ -1564,6 +1579,106 @@ def neighbour_taluk_place(gaz: "Gazetteer", res: dict, village: str | None,
             "village_parts": tried["village_parts"],
             "village_status": tried["village_status"],
             "village_source": "neighbour-taluk"}
+
+
+# ── Taluks split since 2011 ──────────────────────────────────────────────────
+# Notices still name the taluk a village was in before Tamil Nadu split it:
+# "Dindigul" for Dindigul East or West, "Chengalpattu" for land now in
+# Tiruporur. The Census 2011 village directory joined to LGD's village list on
+# the village's census code (scripts/census2011_taluk_lineage) says, village by
+# village, which taluk of today each village of a 2011 taluk lies in.
+
+CENSUS_SOURCE = "census-2011"
+#: What a split leaves after the old name, folded: "Coimbatore North" → "nort".
+_HALF = re.compile(r"(?:nort|sout|east|west)")
+
+
+def load_taluk_lineage(path: Path = TALUK_LINEAGE) -> dict:
+    """The lineage table, or {} before it exists."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+
+
+def _lineage_taluks(gaz: "Gazetteer", lineage: dict, taluk: str,
+                    district: str | None) -> list[str]:
+    """The 2011 taluks a notice's taluk string names: its folded spelling,
+    narrowed to those with a village in ``district`` today when two 2011
+    taluks share the spelling (Tirupattur in Vellore, Tiruppattur in
+    Sivaganga)."""
+    alias = TALUK_ALIASES.get(re.sub(r"\s+", " ", taluk.lower().strip()))
+    key = normalize_place(alias or taluk)
+    named = [name for name in lineage.get("taluks", {}) if normalize_place(name) == key]
+    # "Coimbatore" was already two taluks in 2011, Coimbatore North and South:
+    # the bare name means either half.
+    if not named and key:
+        named = [name for name in lineage.get("taluks", {})
+                 if _HALF.fullmatch(normalize_place(name)[len(key):] or "-")
+                 and normalize_place(name).startswith(key)]
+    if len(named) > 1 and district:
+        named = [name for name in named if any(
+            (hit := gaz.taluk(now)) and hit[1] == district
+            for now in lineage["taluks"][name].get("now", {}))]
+    return named
+
+
+def lineage_place(gaz: "Gazetteer", res: dict, village: str | None,
+                  taluk: str | None, lineage: dict | None) -> dict:
+    """``res`` placed through the taluk the notice's village has moved to since
+    2011 (:data:`TALUK_LINEAGE`), when the notice names a 2011 taluk and its
+    village did not place under it (``no-parent-taluk`` or ``unmatched``).
+
+    The village's own record answers first: a village of that 2011 taluk now
+    in a differently named taluk is looked for there, by the notice's spelling
+    and then by LGD's. Failing that, the village must be found by
+    :func:`resolve_place`'s own rules in exactly one of the taluks the 2011
+    taluk's villages now lie in. Either way the taluk must sit in the known
+    district, and a census-town twin refuses it, as for neighbouring taluks.
+    Source ``census-2011``."""
+    if (not lineage or not village or not taluk or res.get("village")
+            or res.get("village_parts")
+            or res.get("village_status") not in ("no-parent-taluk", "unmatched")):
+        return res
+    district = res.get("district")
+    answers: dict[tuple, tuple] = {}
+
+    def attempt(target: str, names: tuple[str, ...]) -> None:
+        hit = gaz.taluk(target)
+        if not hit or (district and hit[1] != district):
+            return
+        for name in names:
+            tried = resolve_place(gaz, district=hit[1], taluk=hit[0], village=name)
+            if tried["taluk"] != hit[0]:
+                continue
+            found = (tried["village"],) if tried["village"] else tuple(tried["village_parts"])
+            if not found:
+                continue
+            if gaz.census_town_twin(village, hit[0]) or any(
+                    gaz.census_town_twin(f, hit[0]) for f in found):
+                answers[("twin",)] = ()
+                return
+            answers.setdefault((hit[0], found), (hit, tried))
+            return
+
+    for old in _lineage_taluks(gaz, lineage, taluk, district):
+        moved = lineage.get("villages", {}).get(old, {}).get(normalize_place(village))
+        if moved:
+            attempt(moved[0], (village, moved[1]))
+    if not answers:
+        for old in _lineage_taluks(gaz, lineage, taluk, district):
+            for now in lineage["taluks"][old].get("now", {}):
+                attempt(now, (village,))
+    if len(answers) != 1 or ("twin",) in answers:
+        return res
+    (hit, tried), = answers.values()
+    out = {**res, "taluk": hit[0], "district": hit[1], "village": tried["village"],
+           "village_parts": tried["village_parts"],
+           "village_status": tried["village_status"],
+           "village_source": CENSUS_SOURCE}
+    if not district:
+        out["district_source"] = CENSUS_SOURCE
+    return out
 
 
 # ── Towns: the urban register ────────────────────────────────────────────────
