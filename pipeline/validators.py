@@ -49,11 +49,12 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 7   # 4: full_description_incomplete stops charging details
+SCORE_VERSION = 8   # 4: full_description_incomplete stops charging details
                     # that are not a truncation; detail_wrong_lot (med) added
                     # 5: one span tagged to several lots is the nearest lot's
                     # 6: wrong_lot only when the lot has its own such detail
                     # 7: never for a header sentence, a status, or a reviewer's add
+                    # 8: a location copy only when it names another village
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -234,6 +235,21 @@ def _shared_home(span, lot, fd_span, sharers: dict) -> str | None:
     return None if best[0] == lot else best[0]
 
 
+def _village(v) -> str:
+    return re.sub(r"[^a-z]", "", str(v or "").lower()).replace("village", "")
+
+
+def _names_other_village(items, span, village: str) -> bool:
+    """Does this location copy name a village, and the lot's own locations a
+    different one? Only then is it another lot's place (TATA-C117865182373953:
+    "Kundrathur 'B' Village" on lots whose own village is Kattangulathur). A
+    2026-10 sweep of the flagged location copies: 4 named a different village;
+    100 added a taluk or sub-registrar office to the lot's partial address."""
+    own = {v for sp, _t, c, _k, _e, _r, _a, v in items
+           if c == "location" and sp and sp != span and v}
+    return bool(village) and bool(own) and village not in own
+
+
 def _has_own(items, span, cls, kind) -> bool:
     """Does the lot carry another detail of this class (and identifier kind)
     at a different place? Only then is a copy that belongs elsewhere a
@@ -348,7 +364,7 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
             gran_by_lot.setdefault(li, []).append(
                 (sp, txt, c, kind, getattr(e, "id", None),
                  str(getattr(e, "extraction_text", "") or ""),
-                 bool(getattr(e, "added", False))))
+                 bool(getattr(e, "added", False)), _village(attrs.get("village"))))
     for slot in fd_by_lot.values():
         slot["alnum"] = _alnum(slot["text"])
     other_blocks = [(li, sp) for li, slot in fd_by_lot.items() for sp in slot["spans"]]
@@ -368,7 +384,7 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
             missing_fd.append(li)
             continue
         outside, unchecked, elsewhere, reasons = set(), set(), set(), {}
-        for sp, txt, cls, kind, eid, raw, added in items:
+        for sp, txt, cls, kind, eid, raw, added, village in items:
             by_span = (sp and fd["span"] and fd["span"][0] <= sp[0] <= sp[1] <= fd["span"][1])
             if by_span or _covered_by_text(txt, cls, fd):
                 continue
@@ -395,6 +411,12 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                 # pipeline copies onto each on purpose (gap_fill.
                 # inherit_shared). Sharing, not a mislabel — see _has_own.
                 reasons.setdefault("shared", set()).add(cls)
+            elif why == "wrong_lot" and cls == "location" and not _names_other_village(
+                    items, sp, village):
+                # A location copy that names no village other than the lot's
+                # own adds what the lot's partial location lacks (a taluk, a
+                # sub-registrar office) — complementary, not a mislabel.
+                reasons.setdefault("complements", set()).add(cls)
             elif why == "wrong_lot":
                 elsewhere.add(cls)
                 home = next((o for o, (x, y) in other_blocks
