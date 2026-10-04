@@ -229,7 +229,7 @@ def test_write_corrections_restamps_key_score(monkeypatch):
 # The "description gaps" / "wrong lot" pills say a notice has a problem; the
 # key table says which lot and which detail, so a 50-lot notice is not a hunt.
 
-_GAP_MD = ("Lot 1: All that land in S.F.No.179/6, Ponmeni Village. Reserve Rs.9,50,000. "
+_GAP_MD = ("Lot 1: All that land in S.F.No.179/6, Block A, Ponmeni Village. Reserve Rs.9,50,000. "
            "Bounded by: South by: 30 feet road. "
            "Lot 2: A flat bearing Flat No.G1 in Block C.")
 
@@ -242,7 +242,8 @@ def _gap_ents():
         return {"id": i, "cls": cls, "text": text, "start": s, "end": s + len(text),
                 "attrs": {"lot_index": lot, **attrs}}
     return [
-        at("full_description", "All that land in S.F.No.179/6, Ponmeni Village.", "1", "fd1"),
+        at("full_description", "All that land in S.F.No.179/6, Block A, Ponmeni Village.", "1", "fd1"),
+        at("identifier", "Block A", "1", "own1", kind="block"),
         at("boundary", "South by: 30 feet road", "1", "b1"),
         at("full_description", "A flat bearing Flat No.G1 in Block C.", "2", "fd2"),
         at("identifier", "Block C", "1", "id1", kind="block"),

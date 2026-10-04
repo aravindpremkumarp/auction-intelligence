@@ -49,9 +49,10 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 5   # 4: full_description_incomplete stops charging details
+SCORE_VERSION = 6   # 4: full_description_incomplete stops charging details
                     # that are not a truncation; detail_wrong_lot (med) added
                     # 5: one span tagged to several lots is the nearest lot's
+                    # 6: wrong_lot only when the lot has its own such detail
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -230,6 +231,16 @@ def _shared_home(span, lot, fd_span, sharers: dict) -> str | None:
     return None if best[0] == lot else best[0]
 
 
+def _has_own(items, span, cls, kind) -> bool:
+    """Does the lot carry another detail of this class (and identifier kind)
+    at a different place? Only then is a copy that belongs elsewhere a
+    mislabel: a lot whose only village is the one the notice states for all
+    its lots is sharing it. A 2026-10 dry run that dropped such copies would
+    have left 80 of 96 notices with lots that had no village or taluk."""
+    return any(c == cls and (cls != "identifier" or k == kind) and sp and sp != span
+               for sp, _t, c, k, *_ in items)
+
+
 def _outside_reason(span, txt, cls, kind, lot, fd, other_blocks, source_text,
                     sharers: dict | None = None):
     """Why a placed detail outside its lot's block is not a truncation, or None
@@ -366,6 +377,13 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                 outside.add(cls)       # both placed, and it really is outside
                 details.setdefault(li, []).append(
                     {"kind": "incomplete", "cls": cls, "text": raw, "id": eid, "in_lot": None})
+            elif why == "wrong_lot" and not _has_own(items, sp, cls, kind):
+                # The lot has no detail of this kind but this one: a fact
+                # the notice states once for several lots ("all the
+                # properties below are in Zuzuvadi village"), which the
+                # pipeline copies onto each on purpose (gap_fill.
+                # inherit_shared). Sharing, not a mislabel — see _has_own.
+                reasons.setdefault("shared", set()).add(cls)
             elif why == "wrong_lot":
                 elsewhere.add(cls)
                 home = next((o for o, (x, y) in other_blocks

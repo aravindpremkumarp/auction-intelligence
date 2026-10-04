@@ -163,10 +163,12 @@ def test_boundaries_after_the_block_are_still_a_truncation():
 
 
 def test_a_detail_in_another_lots_block_is_a_wrong_lot_not_a_truncation():
-    fd2 = "Item 2: vacant site in Plot No 24, Zuzuvadi Village, Hosur Taluk."
+    """Lot 1 has its own survey number; the one in lot 2's block is lot 2's."""
+    fd2 = "Item 2: vacant site in S.No.88/2, Zuzuvadi Village, Hosur Taluk."
     page = FD1 + "\n\n" + fd2
     ex = [_block(page, FD1, lot="1"), _block(page, fd2, lot="2"),
-          _at(page, "identifier", "Plot No 24", lot="1", kind="plot")]
+          _at(page, "identifier", "S.F.No.179/6", lot="1", kind="survey_old"),
+          _at(page, "identifier", "S.No.88/2", lot="1", kind="survey_old")]
     cov = full_description_coverage(ex, page)
     assert cov["lots_incomplete"] == {}
     assert cov["lots_wrong_lot"] == {"1": ["identifier"]}
@@ -283,8 +285,37 @@ def test_one_span_tagged_to_several_lots_is_the_nearest_lots():
     fd2, fd50 = "Lot 2: a flat in Kattangulathur.", "Lot 50: a plot in Kundrathur."
     village = "KUNDRATHUR 'B' VILLAGE, Kundrathur Taluk"
     ex = [_block(page, fd2, lot="2"), _block(page, fd50, lot="50"),
+          _at(page, "location", "Kattangulathur", lot="2"),      # lot 2's own
           _at(page, "location", village, lot="2"), _at(page, "location", village, lot="50")]
     cov = full_description_coverage(ex, page)
     assert cov["lots_incomplete"] == {}       # lot 50's block names Kundrathur
     assert cov["lots_wrong_lot"] == {"2": ["location"]}
     assert cov["details"]["2"][0]["in_lot"] == "50"
+
+
+def test_a_lots_only_village_stated_for_several_lots_is_shared_not_wrong():
+    """"All the properties below are in Cuddalore District, Bhuvanagiri
+    Taluk": the pipeline copies that onto each lot on purpose. A lot with no
+    other location is sharing it — dropping it would leave the lot unplaced."""
+    shared = "Cuddalore District, Bhuvanagiri Taluk"
+    fd1 = "Item 1: All that land in " + shared + ", S.No.187/7."
+    fd2 = "Item 2: A house site in S.No.188/2."
+    page = fd1 + " " + "x" * 300 + " " + fd2
+    ex = [_block(page, fd1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "location", shared, lot="1"), _at(page, "location", shared, lot="2")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_wrong_lot"] == {} and cov["lots_incomplete"] == {}
+    assert cov["lots_excused"] == {"2": {"shared": ["location"]}}
+    assert "detail_wrong_lot" not in _codes(ex)
+
+
+def test_a_shared_survey_number_is_judged_against_survey_numbers_only():
+    """Lot 2 has a plot number but no survey number of its own: the parent
+    survey number stated in lot 1's block is shared, not mislabelled."""
+    fd1 = "Item 1: land in Re-survey No.187/7, Plot No.1."
+    fd2 = "Item 2: house site, Plot No.2."
+    page = fd1 + " " + fd2
+    ex = [_block(page, fd1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "identifier", "Plot No.2", lot="2", kind="plot"),
+          _at(page, "identifier", "Re-survey No.187/7", lot="2", kind="survey_new")]
+    assert full_description_coverage(ex, page)["lots_wrong_lot"] == {}
