@@ -366,6 +366,25 @@ def test_unverified_row_lands_in_pending_not_edited() -> None:
     assert "d.notice_type_verified_at IS NOT NULL" in edited
 
 
+def test_unclassified_notices_reach_the_queue_but_not_bulk_confirm(monkeypatch) -> None:
+    """A notice with no portal listing is never typed by classify_notice, so the
+    queue must show it (or it never gets a lot count) — but bulk-confirm only
+    confirms an existing type, so it must skip it."""
+    import api.review.queries as q
+
+    pending, _ = q._classification_where(status="pending")
+    assert "d.notice_type IS NOT NULL" not in pending
+    unclassified, _ = q._classification_where(status="pending", notice_type="unclassified")
+    assert "d.notice_type IS NULL" in unclassified
+    assert "d.notice_type IS NOT NULL" not in unclassified
+
+    seen = []
+    monkeypatch.setattr(q, "run_read_query",
+                        lambda c, p, **kw: seen.append(c) or [{"n": 0}])
+    q.auto_confirm_classifications(by_email="a@b.c", dry_run=True)
+    assert "d.notice_type IS NOT NULL" in seen[0]
+
+
 # ── Pure-function tests for pipeline modules ────────────────────────────────
 
 

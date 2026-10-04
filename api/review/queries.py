@@ -310,14 +310,22 @@ def _classification_where(
     notice_type: NoticeTypeFilter | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    typed_only: bool = False,
 ) -> tuple[list[str], dict]:
     """Shared filter clause for the classification queue + bulk-confirm.
 
     Keeping list + bulk-confirm in the same WHERE prevents the two from
     drifting (which let bulk-confirm act on a different set than the count
     advertised on the button).
+
+    A notice with no type is in the queue: pipeline/classify_notice types a
+    notice from its portal listings, so a notice uploaded without one (it
+    still gets OCR and extraction) is never typed and never gets a lot count
+    unless a person classifies it here. ``typed_only`` keeps those out of
+    bulk-confirm, which confirms the type a notice already has — one with no
+    type has nothing to confirm and needs the per-notice verify.
     """
-    where = ["d.notice_type IS NOT NULL"]
+    where = ["d.notice_type IS NOT NULL"] if typed_only else ["true"]
     params: dict = {}
     if status == "pending":
         where.append("d.notice_type_verified_at IS NULL")
@@ -361,7 +369,7 @@ def list_classification_queue(
       - pending:  not yet human-verified (notice_type_verified_at IS NULL)
       - verified: human confirmed, type unchanged (notice_type_overridden = false)
       - edited:   human overrode the type (notice_type_overridden = true)
-      - all:      every Document with a notice_type
+      - all:      every Document (unclassified ones included)
 
     date_from / date_to filter to Documents linked to any AuctionProperty
     whose auction_start_dt falls in the window.
@@ -518,7 +526,7 @@ def classification_stats(
     extra_where = (" AND " + " AND ".join(extra)) if extra else ""
     rows = run_read_query(f"""
         MATCH (d:Document)
-        WHERE d.notice_type IS NOT NULL{extra_where}
+        WHERE true{extra_where}
         RETURN
           count(*) AS total,
           sum(CASE WHEN d.notice_type_verified_at IS NULL THEN 1 ELSE 0 END) AS pending,
@@ -705,6 +713,7 @@ def auto_confirm_classifications(
         notice_type=notice_type,
         date_from=date_from,
         date_to=date_to,
+        typed_only=True,
     )
     params["by"] = by_email
     params["notes"] = notes
