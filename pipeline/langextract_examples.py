@@ -60,6 +60,43 @@ except ModuleNotFoundError as e:  # pragma: no cover - environment guard
         "(or just `pip install 'langextract>=1.5,<2' 'openai>=2.0,<3'`)"
     ) from e
 
+from langextract import annotation as _lx_annotation  # noqa: E402
+
+
+def merge_passes(all_extractions) -> list:
+    """Merge LangExtract's extraction passes without losing nested spans.
+
+    LangExtract's own merge (annotation._merge_non_overlapping_extractions)
+    keeps the first pass and adds a later-pass span only if it overlaps
+    nothing already kept — of ANY class, and including spans just added from
+    that same later pass. Our scheme nests spans on purpose: full_description
+    is the union of a lot's property / location / extent / identifier /
+    boundary spans. So whenever the first pass came back empty (a parse error,
+    "Content must contain an 'extractions' key", which skips that pass), the
+    second pass was merged against itself: its property span went in first
+    and every span inside it — full_description, location, identifiers,
+    extent — was thrown away. A re-run then "lost" the description.
+
+    Here a later-pass span is a duplicate only when an EARLIER pass already
+    has a span of the same class over the same text; spans from one pass never
+    knock each other out, and a class the first pass missed is kept.
+    """
+    passes = [list(p) for p in (all_extractions or [])]
+    if not passes:
+        return []
+    merged = list(passes[0])
+    for later in passes[1:]:
+        earlier = list(merged)
+        for e in later:
+            if not any(x.extraction_class == e.extraction_class
+                       and _lx_annotation._extractions_overlap(e, x)
+                       for x in earlier):
+                merged.append(e)
+    return merged
+
+
+_lx_annotation._merge_non_overlapping_extractions = merge_passes
+
 # --------------------------------------------------------------------------- #
 # C — prompt is derived from the canonical scheme file, not hand-maintained.
 # --------------------------------------------------------------------------- #
