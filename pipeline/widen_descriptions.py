@@ -102,6 +102,14 @@ def _missed(ents: list[dict], md: str, lot: str, fd_idx: list[int],
     fd = {"span": (min(s for s, _ in spans), max(t for _, t in spans)),
           "text": " ".join(_norm_ws(ents[i].get("text")) for i in fd_idx).strip()}
     fd["alnum"] = _alnum(fd["text"])
+    blocks: dict = {}
+    for ol, sp in other_blocks:
+        a, b = blocks.get(ol, sp)
+        blocks[ol] = (min(a, sp[0]), max(b, sp[1]))
+    span_lots: dict = {}           # the same span tagged to several lots
+    for o in ents:
+        if isinstance(o, dict) and _span(o):
+            span_lots.setdefault((o.get("cls"), _span(o)), set()).add(_lot(o))
     out = []
     for e in ents:
         sp = _span(e)
@@ -115,7 +123,9 @@ def _missed(ents: list[dict], md: str, lot: str, fd_idx: list[int],
             continue
         kind = (normalize_identifier_kind((e.get("attrs") or {}).get("kind"))[0]
                 if cls == "identifier" else None)
-        if _outside_reason(sp, txt, cls, kind, lot, fd, other_blocks, md) is None:
+        sharers = {ol: blocks[ol] for ol in span_lots.get((cls, sp), ())
+                   if ol != lot and ol in blocks}
+        if _outside_reason(sp, txt, cls, kind, lot, fd, other_blocks, md, sharers) is None:
             out.append(sp)
     return out
 
