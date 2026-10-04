@@ -3525,7 +3525,9 @@
       ${openLink ? `<div style="margin-top:8px;">${openLink}</div>` : ''}
     `;
 
-    const altType = n.notice_type === 'single' ? 'multi' : 'single';
+    // An unclassified notice (no portal listing to type it from) confirms as
+    // 'single' — the button says so — and flips to 'multi'.
+    const altType = (n.notice_type || 'single') === 'single' ? 'multi' : 'single';
     const verifiedFooter = n.verified
       ? `<div class="audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
       : '<div class="audit">not yet verified</div>';
@@ -3547,8 +3549,8 @@
 
     const filenameForApi = n.filename || '';
     right.querySelector('button[data-act="confirm"]').addEventListener('click', () =>
-      submitClassification(card, filenameForApi, n.notice_type, right.querySelector('.cnotes').value || null,
-                           readLotCount(right, n.notice_type)));
+      submitClassification(card, filenameForApi, n.notice_type || 'single', right.querySelector('.cnotes').value || null,
+                           readLotCount(right, n.notice_type || 'single')));
     right.querySelector('button[data-act="flip"]').addEventListener('click', () =>
       submitClassification(card, filenameForApi, altType, right.querySelector('.cnotes').value || null,
                            readLotCount(right, altType)));
@@ -3797,7 +3799,7 @@
     const lotCountBadge = n.expected_lot_count != null
       ? `<span class="pill on" title="reviewer-confirmed lot count">lots: ${n.expected_lot_count}</span>`
       : '';
-    const altType = n.notice_type === 'single' ? 'multi' : 'single';
+    const altType = (n.notice_type || 'single') === 'single' ? 'multi' : 'single';
     const auditFooter = n.verified
       ? `<div class="gr-audit">verified by <code>${escapeHtml(n.verified_by || '?')}</code> at <code>${escapeHtml(fmtWhen(n.verified_at))}</code></div>`
       : '<div class="gr-audit">not yet verified</div>';
