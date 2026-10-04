@@ -99,8 +99,14 @@ def _missed(ents: list[dict], md: str, lot: str, fd_idx: list[int],
             other_blocks: list) -> list[tuple[int, int]]:
     """Spans of this lot's details the validator counts as real truncations."""
     spans = [_span(ents[i]) for i in fd_idx]
+    # What the block covers is the page text under its span, not the text the
+    # model wrote: a model that rewords the block — a survey table stored as
+    # HTML flattened to "199/1A 0.00 22 …", "$\frac{1}{2}$" written as "½" —
+    # quotes details its span never reaches, and judging by its own text would
+    # call them covered and leave the highlight short of them.
     fd = {"span": (min(s for s, _ in spans), max(t for _, t in spans)),
-          "text": " ".join(_norm_ws(ents[i].get("text")) for i in fd_idx).strip()}
+          "text": " ".join(_norm_ws(md[s:t] if md else ents[i].get("text"))
+                           for i, (s, t) in zip(fd_idx, spans)).strip()}
     fd["alnum"] = _alnum(fd["text"])
     blocks: dict = {}
     for ol, sp in other_blocks:
@@ -125,7 +131,13 @@ def _missed(ents: list[dict], md: str, lot: str, fd_idx: list[int],
                 if cls == "identifier" else None)
         sharers = {ol: blocks[ol] for ol in span_lots.get((cls, sp), ())
                    if ol != lot and ol in blocks}
-        if _outside_reason(sp, txt, cls, kind, lot, fd, other_blocks, md, sharers) is None:
+        # The validator excuses a detail in a table cell as a repeat of the
+        # block. A true repeat is already in the block's page text (covered
+        # above), so here a table cell is the block's own table — a survey
+        # schedule printed under "With the following Survey Nos." — and is
+        # reached like any other detail, within the same stopping rules.
+        if _outside_reason(sp, txt, cls, kind, lot, fd, other_blocks, md,
+                           sharers) in (None, "table"):
             out.append(sp)
     return out
 

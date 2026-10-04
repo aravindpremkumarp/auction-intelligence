@@ -41,6 +41,27 @@ def test_boundaries_after_the_block_are_taken_in():
     assert "full_description_incomplete" not in codes(new, page)
 
 
+def test_a_reworded_block_is_judged_by_the_page_text_under_it():
+    """The model flattened the survey table (stored as HTML) into its own text,
+    so its words name every survey number while its span stops before the
+    table. The block is stretched over the table and takes the page's text."""
+    head = "1) All that piece and parcel of Factory land, With the following Survey Nos."
+    table = ("<table><tr><td>Survey no.</td><td>Cents</td></tr>"
+             "<tr><td>199/1A</td><td>22</td></tr>"
+             "<tr><td>206/1D5</td><td>02 $\\frac{1}{2}$</td></tr></table>")
+    page = head + "\n\n" + table + "\n\nReserve Price : Rs. 58,66,560/-"
+    fd = {"id": None, "cls": "full_description", "start": 0, "end": len(head),
+          "text": head + " 199/1A 22; 206/1D5 02 ½.", "attrs": {"lot_index": "1"}}
+    ents = [fd, ent(page, "identifier", "199/1A", kind="survey_old"),
+            ent(page, "identifier", "206/1D5", kind="survey_old")]
+    new, rep = widen(ents, page)
+    b = block(new)
+    assert b["start"] == 0 and b["end"] >= page.index("</table>")
+    assert b["text"] == page[b["start"]:b["end"]]
+    assert "Reserve Price" not in b["text"]
+    assert rep["1"]["reached"] == 2
+
+
 def test_a_schedule_before_the_block_is_taken_in():
     sched = "Schedule A: land in S.No.88/2, Ponmeni Village measuring 3 acres."
     page = sched + "\nThe property mortgaged:\n" + FD
