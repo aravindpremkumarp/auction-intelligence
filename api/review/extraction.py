@@ -117,6 +117,13 @@ class DescriptionGap(BaseModel):
     in_lot: str | None = None        # wrong_lot: the lot whose description holds it
 
 
+class LotFailure(BaseModel):
+    """One failure pill a lot is behind, and why (see lot_failures)."""
+    failure: str                     # an EXTRACTION_FAILURES key
+    why: str = ""
+    field_id: str | None = None      # the entity to jump to, when there is one
+
+
 class KeyLot(BaseModel):
     lot_index: str
     extracted: bool = True           # False: counted at classification, never emitted
@@ -124,6 +131,9 @@ class KeyLot(BaseModel):
     # Why this lot is behind the "description gaps" / "wrong lot" pill: the
     # details its description misses, or that sit in another lot's description.
     description_gaps: list[DescriptionGap] = []
+    # Every failure pill this lot is behind, in filter-bar order — so a
+    # 50-lot notice under "no property type" says which lots.
+    failures: list[LotFailure] = []
 
 
 class KeyChecklist(BaseModel):
@@ -178,6 +188,9 @@ class ExtractionReviewOut(BaseModel):
     stitched_into: str | None = None
     stitched_pages: list[str] = []
     stitched_page_offsets: list[int] = []
+    # The source image/pdf of each stitched page, in page order, so the notice
+    # pane shows every page the lots came from — not just the leader's.
+    stitched_page_sources: list[dict] = []
     fields: list[ExtractionField] = []
 
 
@@ -284,13 +297,13 @@ def extraction_stale(md_reextracted_at: str | None, md_loaded_at: str | None,
 # ── query helpers (kept here so queries.py is untouched) ──────────────────────
 def get_extraction(filename: str) -> dict | None:
     rows = run_read_query(
-        """
-        MATCH (d:Document {filename: $fn})
+        f"""
+        MATCH (d:Document {{filename: $fn}})
         WHERE d.extraction_json IS NOT NULL
         RETURN d.filename                                   AS filename,
                coalesce(d.stitched_markdown, d.markdown)    AS markdown,
                d.extraction_json                            AS extraction_json,
-               coalesce(d.extraction_corrections_json, '{}') AS corrections_json,
+               coalesce(d.extraction_corrections_json, '{{}}') AS corrections_json,
                coalesce(d.extraction_review_status, 'pending') AS status,
                d.extraction_score                           AS score,
                d.extraction_verified_by                     AS verified_by,
@@ -307,7 +320,15 @@ def get_extraction(filename: str) -> dict | None:
                toString(d.extraction_stale_at)              AS extraction_stale_at,
                d.stitched_into                              AS stitched_into,
                coalesce(d.stitched_pages, [])                AS stitched_pages,
-               coalesce(d.stitched_page_offsets, [])          AS stitched_page_offsets
+               coalesce(d.stitched_page_offsets, [])          AS stitched_page_offsets,
+               COLLECT {{ UNWIND coalesce(d.stitched_pages, []) AS _p
+                          MATCH (_x:Document {{filename: _p}})
+                          RETURN {{filename: _p, public_url: _x.public_url,
+                                  doc_type: _x.doc_type, content_type: _x.content_type}} }}
+                                                            AS stitched_page_sources,
+               [(d)-[:HAS_LOT]->(_l:Lot) WHERE {_UNPLACED_LOT} |
+                {{lot: toString(_l.lot_index), village: _l.village_raw,
+                  district: _l.district}}]                  AS unplaced_lots
         LIMIT 1
         """,
         {"fn": filename},
@@ -1131,8 +1152,11 @@ def extraction_detail(
                                      row.get("corrections_json"), expected)
     gaps = description_gaps(row.get("extraction_json"), row.get("corrections_json"),
                             row.get("markdown"))
+    fails = lot_failures(row.get("extraction_json"), row.get("corrections_json"),
+                         row.get("markdown"), row.get("unplaced_lots"))
     for lot in keys.get("lots") or []:
         lot["description_gaps"] = gaps.get(str(lot.get("lot_index")), [])
+        lot["failures"] = fails.get(str(lot.get("lot_index")), [])
     return ExtractionReviewOut(
         filename=row["filename"], markdown=row.get("markdown"),
         status=row.get("status", "pending"), score=row.get("score"),
@@ -1146,6 +1170,8 @@ def extraction_detail(
         rerun_running=running, rerun_error=error,
         stitched_pages=list(row.get("stitched_pages") or []),
         stitched_page_offsets=[int(o) for o in (row.get("stitched_page_offsets") or [])],
+        stitched_page_sources=_page_sources(row.get("stitched_pages"),
+                                            row.get("stitched_page_sources")),
         fields=_build_fields(row["extraction_json"], row["corrections_json"],
                              row.get("markdown"), stale),
         orphaned=_orphaned(row.get("corrections_json")),
@@ -1164,6 +1190,68 @@ def description_gaps(extraction_json: str | None, corrections_json: str | None,
     return {lot: [{"kind": d["kind"], "cls": d["cls"], "text": d["text"],
                    "field_id": d["id"], "in_lot": d["in_lot"]} for d in items]
             for lot, items in cov["details"].items()}
+
+
+#: validators.py issue code -> the failure pill it raises.
+_CODE_PILL = {c: k for k, spec in EXTRACTION_FAILURES.items() for c in spec.get("codes", ())}
+#: The reader's per-value evidence word -> its pill, and what it means for a lot.
+_EVIDENCE_PILL = {"CONTESTED": ("contested", "two reads disagreed, or a cross-field rule failed"),
+                  "FUZZY_GROUNDED": ("fuzzy", "found only by similarity — the OCR changed it"),
+                  "ILLEGIBLE": ("illegible", "a figure the OCR garbled")}
+
+
+def lot_failures(extraction_json: str | None, corrections_json: str | None,
+                 markdown: str | None, unplaced_lots: list[dict] | None = None
+                 ) -> dict[str, list[dict]]:
+    """lot_index -> [{failure, why, field_id}]: every failure pill the lot is
+    behind, in filter-bar order. The validator's per-lot findings (the same
+    check, on the same entities with reviewer corrections applied, as the
+    stamped issue codes the pills filter on), the reader's evidence words, and
+    the lots place resolution could not place. Pills about the notice as a
+    whole — missing/extra lots, re-run, no bank, dropped quotes — name no lot."""
+    from pipeline.apply_extractions import entities_with_corrections
+    from pipeline.validators import validate_stored
+    ents = entities_with_corrections(extraction_json or "[]", corrections_json)
+    out: dict[str, list[dict]] = {}
+
+    def add(lot, failure, why, fid=None):
+        items = out.setdefault(str(lot), [])
+        if not any(i["failure"] == failure and i["why"] == why for i in items):
+            items.append({"failure": failure, "why": why, "field_id": fid})
+
+    for lot, items in validate_stored(ents, source_text=markdown or "")["lots"].items():
+        for it in items:
+            if it["code"] in _CODE_PILL:
+                add(lot, _CODE_PILL[it["code"]], it["msg"], it.get("id"))
+    seen: dict = {}                  # (lot, pill) -> [count, first id, why]
+    for i, e in enumerate(ents):
+        a = (e.get("attrs") or {}) if isinstance(e, dict) else {}
+        pill = _EVIDENCE_PILL.get(a.get("evidence"))
+        if pill:
+            slot = seen.setdefault((str(a.get("lot_index") or "1"), pill[0]),
+                                   [0, e.get("id") or str(i), pill[1]])
+            slot[0] += 1
+    for (lot, pill), (n, fid, why) in seen.items():
+        add(lot, pill, f"{n} value{'s' if n != 1 else ''}: {why}", fid)
+    for u in unplaced_lots or []:
+        place = ", ".join(x for x in (u.get("village"), u.get("district")) if x)
+        if u.get("district"):
+            add(u.get("lot") or "1", "district-only", f"{place} — placed to its district only")
+        else:
+            add(u.get("lot") or "1", "not-placed", f"{place or 'no village read'} — matched no place")
+    order = {k: n for n, k in enumerate(EXTRACTION_FAILURES)}
+    for items in out.values():
+        items.sort(key=lambda i: order.get(i["failure"], len(order)))
+    return out
+
+
+def _page_sources(pages: list[str] | None, found: list[dict] | None) -> list[dict]:
+    """One {filename, public_url, doc_type, content_type} per stitched page,
+    in page order; a page whose Document is gone keeps its filename (the
+    notice pane then falls back to the source proxy)."""
+    by_fn = {s.get("filename"): s for s in (found or []) if isinstance(s, dict)}
+    return [{"filename": fn, "public_url": None, "doc_type": None, "content_type": None,
+             **by_fn.get(fn, {})} for fn in (pages or [])] if len(pages or []) > 1 else []
 
 
 def _orphaned(corrections_json: str | None) -> list[dict]:

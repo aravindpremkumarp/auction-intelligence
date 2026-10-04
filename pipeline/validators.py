@@ -398,9 +398,15 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
 
 def validate(extractions, source_text: str = "") -> dict:
     issues: list[dict] = []
+    # lot -> the flags it is behind, with why and which entity to look at. The
+    # score still charges each defect ONCE (see the invariant above); this is
+    # only where it lives, so the review page can tag the lot.
+    by_lot: dict = {}
 
-    def flag(code, severity, msg):
+    def flag(code, severity, msg, lots=()):
         issues.append({"code": code, "severity": severity, "msg": msg})
+        for li, why, eid in lots:
+            by_lot.setdefault(li, []).append({"code": code, "msg": why, "id": eid})
 
     classes = collections.Counter()
     lots: set = set()
@@ -419,18 +425,26 @@ def validate(extractions, source_text: str = "") -> dict:
     uds_lots: set = set()           # lots whose extent carries an undivided_share
     borrower_lots: set = set()      # lots with a borrower
     location_lots: set = set()      # lots with a location entity
+    first_id: dict = {}             # (lot, class) -> first entity id, to jump to
+    lot_sizes = collections.Counter()   # lot -> entities tagged to it
+    ungrounded_ids: dict = {}       # lot -> ids of entities with no span
+    bad_kind_ids: dict = {}         # lot -> [(kind, id)] outside the enum
 
     for e in extractions:
         a = e.attributes or {}
         c = e.extraction_class
+        eid = getattr(e, "id", None)
         classes[c] += 1
         present_fields.add(c)             # class presence (borrower/location/...)
         # str() for the same reason as in full_description_coverage: without it
         # a notice whose entities carry both 1 and "1" counts as two lots.
         li = str(a.get("lot_index") or "1")
         lots.add(li)
+        lot_sizes[li] += 1
+        first_id.setdefault((li, c), eid)
         if getattr(e, "char_interval", None) is None:
             ungrounded += 1
+            ungrounded_ids.setdefault(li, []).append(eid)
         for k, v in a.items():
             if k != "lot_index" and v not in (None,):
                 present_fields.add(k)     # attribute presence (village/...)
@@ -441,6 +455,7 @@ def validate(extractions, source_text: str = "") -> dict:
             present_fields.add(kind)      # kind presence (flat/floor/block/...)
             if kind not in CANONICAL_KINDS:
                 invalid_kinds.add(str(a["kind"]))
+                bad_kind_ids.setdefault(li, []).append((str(a["kind"]), eid))
         if c == "secured_creditor":
             # A multi-branch/multi-lot notice repeats secured_creditor; the
             # first entity carries legal_basis etc. — merge first-non-null
@@ -451,6 +466,7 @@ def validate(extractions, source_text: str = "") -> dict:
             r, m = _num(a.get("reserve_price_num")), _num(a.get("emd_num"))
             if r is not None:
                 reserves[li] = r
+                first_id.setdefault((li, "reserve"), eid)
             if m is not None:
                 emds[li] = m
         elif c == "extent":
@@ -460,6 +476,7 @@ def validate(extractions, source_text: str = "") -> dict:
             p = _num(a.get("uds_parent_extent"))
             if p is not None:
                 uds_parent.setdefault(li, set()).add(round(p, 2))
+                first_id.setdefault((li, "uds_parent"), eid)
             for k in ("total_area", "extent_sqft"):
                 v = _num(a.get(k))
                 if v is not None:
@@ -476,43 +493,61 @@ def validate(extractions, source_text: str = "") -> dict:
                 prop_lots.discard(li)
             if a.get("possession_type"):
                 possession[li] = a["possession_type"]
+                first_id.setdefault((li, "possession"), eid)
         elif c == "borrower":
             borrower_lots.add(li)
         elif c == "location":
             location_lots.add(li)
 
+    # A notice-level miss is every lot's miss: the property lots (or every
+    # lot, when none has a property entity) each get the tag.
+    def every_lot(why):
+        return [(li, why, first_id.get((li, "property"))) for li in sorted(prop_lots or lots)]
+
+    def lots_without(have: set, why):
+        return [(li, why, first_id.get((li, "property"))) for li in sorted(prop_lots - have)]
+
     # ── core completeness ────────────────────────────────────────────────────
     if not classes.get("secured_creditor"):
         flag("missing_secured_creditor", "high", "no secured_creditor entity")
     if not classes.get("borrower"):
-        flag("missing_borrower", "high", "no borrower entity")   # lot anchor
+        flag("missing_borrower", "high", "no borrower entity",   # lot anchor
+             every_lot("no borrower in the notice"))
     if not classes.get("location"):
-        flag("missing_location", "med", "no location entity")
+        flag("missing_location", "med", "no location entity",
+             every_lot("no location in the notice"))
     if not reserves:
         flag("missing_reserve_price", "high",                    # lot anchor
-             "no reserve_price_num in any auction_terms")
+             "no reserve_price_num in any auction_terms",
+             every_lot("no reserve price in the notice"))
     if not classes.get("extent"):
-        flag("missing_extent", "high", "no extent entity")       # priority field
+        flag("missing_extent", "high", "no extent entity",       # priority field
+             every_lot("no extent in the notice"))
 
     # ── priority fields (reviewer-weighted) ──────────────────────────────────
     # property_type: high — a property block with no type is barely usable.
     no_type = sorted(li for li in prop_lots if not prop_type.get(li))
     if no_type:
         flag("missing_property_type", "high",
-             f"property lot(s) {no_type} have no property_type")
+             f"property lot(s) {no_type} have no property_type",
+             [(li, "property has no type", first_id.get((li, "property"))) for li in no_type])
     # possession_type: high, but only when PRESENT and invalid (Option A).
     bad_poss = sorted(li for li, p in possession.items()
                       if str(p).strip().lower() not in _POSSESSION_VALID)
     if bad_poss:
         flag("possession_type_invalid", "high",
-             f"lot(s) {bad_poss} possession_type not one of {sorted(_POSSESSION_VALID)}")
+             f"lot(s) {bad_poss} possession_type not one of {sorted(_POSSESSION_VALID)}",
+             [(li, f"possession {possession[li]!r} is not physical/symbolic/constructive",
+               first_id.get((li, "possession"))) for li in bad_poss])
     # UDS: a flat owns an undivided share of land — high when it's missing.
     flat_no_uds = sorted(li for li in prop_lots
                          if "flat" in str(prop_type.get(li, "")).lower()
                          and li not in uds_lots)
     if flat_no_uds:
         flag("missing_uds", "high",
-             f"flat lot(s) {flat_no_uds} have no undivided_share (UDS) extent")
+             f"flat lot(s) {flat_no_uds} have no undivided_share (UDS) extent",
+             [(li, "flat with no undivided share (UDS)", first_id.get((li, "property")))
+              for li in flat_no_uds])
     # Lot anchors on a MULTI notice: every property lot needs its own reserve,
     # borrower and location, else a lot isn't fully captured. Count-based
     # (robust to lot_index mis-tagging): fewer anchors than property lots ->
@@ -529,10 +564,12 @@ def validate(extractions, source_text: str = "") -> dict:
     if n_prop_lots > 1:
         if len(reserves) < n_prop_lots:
             flag("lot_missing_reserve", "high",
-                 f"{n_prop_lots} property lots but only {len(reserves)} reserve price(s)")
+                 f"{n_prop_lots} property lots but only {len(reserves)} reserve price(s)",
+                 lots_without(set(reserves), "no reserve price for this lot"))
         if len(borrower_lots) < n_prop_lots:
             flag("lot_missing_borrower", "high",
-                 f"{n_prop_lots} property lots but only {len(borrower_lots)} with a borrower")
+                 f"{n_prop_lots} property lots but only {len(borrower_lots)} with a borrower",
+                 lots_without(borrower_lots, "no borrower for this lot"))
         # `location_lots` must be non-empty: a notice with no location at all
         # is already charged once by the notice-level check above, and charging
         # it again here would both double-penalise one defect and make the
@@ -541,7 +578,8 @@ def validate(extractions, source_text: str = "") -> dict:
         if location_lots and len(location_lots) < n_prop_lots:
             flag("lot_missing_location", "high",
                  f"{n_prop_lots} property lots but only {len(location_lots)} "
-                 f"with a location")
+                 f"with a location",
+                 lots_without(location_lots, "no location for this lot"))
 
     # ── grounding / cleanliness ──────────────────────────────────────────────
     if ungrounded:
@@ -556,12 +594,18 @@ def validate(extractions, source_text: str = "") -> dict:
         sev = "low" if frac < 0.05 else ("med" if frac < 0.20 else "high")
         flag("ungrounded", sev,
              f"{ungrounded} of {sum(classes.values())} extraction(s) not "
-             f"grounded to source ({frac:.0%})")
+             f"grounded to source ({frac:.0%})",
+             [(li, ("none of this lot's values are in the notice text — likely made up"
+                    if len(ids) == lot_sizes[li] else
+                    f"{len(ids)} of {lot_sizes[li]} values not found in the notice text"), ids[0])
+              for li, ids in sorted(ungrounded_ids.items())])
     if nullvals:
         flag("null_value", "low", f"{nullvals} literal 'null'/empty attribute value(s)")
     if invalid_kinds:
         flag("kind_invalid", "low",
-             f"identifier kind(s) outside the enum: {sorted(invalid_kinds)}")
+             f"identifier kind(s) outside the enum: {sorted(invalid_kinds)}",
+             [(li, f"identifier kind {k!r} is not a known kind", eid)
+              for li, ks in sorted(bad_kind_ids.items()) for k, eid in ks[:1]])
     if classes.get("extras", 0) > 5:
         flag("extras_excess", "low",
              f"{classes['extras']} extras entities (prompt caps at ~5)")
@@ -574,13 +618,17 @@ def validate(extractions, source_text: str = "") -> dict:
                           if not (_RESERVE_MIN <= r <= _RESERVE_MAX))
     if bad_reserves:
         flag("reserve_out_of_range", "med", "implausible reserve(s): " + ", ".join(
-            f"lot {li}={r:.0f}" for li, r in bad_reserves))
+            f"lot {li}={r:.0f}" for li, r in bad_reserves),
+            [(li, f"reserve price {r:,.0f} is out of range", first_id.get((li, "reserve")))
+             for li, r in bad_reserves])
     bad_emd = sorted((li, emds[li] / r) for li, r in reserves.items()
                      if emds.get(li) and r
                      and not (_EMD_LO <= emds[li] / r <= _EMD_HI))
     if bad_emd:
         flag("emd_ratio_off", "low", "emd/reserve off (expect ~0.10): " + ", ".join(
-            f"lot {li}={ratio:.2f}" for li, ratio in bad_emd))
+            f"lot {li}={ratio:.2f}" for li, ratio in bad_emd),
+            [(li, f"EMD is {ratio:.0%} of the reserve (expect ~10%)",
+              first_id.get((li, "reserve"))) for li, ratio in bad_emd])
     # A flat's UDS parent-plot extent must live ONLY in uds_parent_extent — never
     # be echoed as the property's own area. Overlap means the whole plot got
     # recorded as the flat's size (e.g. a 760 sq.ft flat shown as 2257 sq.ft).
@@ -593,7 +641,9 @@ def validate(extractions, source_text: str = "") -> dict:
                                    in sorted(uds_overlap.items()))
              + " record the UDS parent extent as the property's own area "
                "(total_area/extent_sqft) — for a flat that value belongs only in "
-               "uds_parent_extent")
+               "uds_parent_extent",
+             [(li, f"the parent plot's area {vals} is recorded as the flat's own",
+               first_id.get((li, "uds_parent"))) for li, vals in sorted(uds_overlap.items())])
 
     # ── multi-lot recall heuristic ───────────────────────────────────────────
     if source_text:
@@ -608,24 +658,32 @@ def validate(extractions, source_text: str = "") -> dict:
     if cov["lots_missing_full_description"]:
         flag("missing_full_description", "critical",
              f"lot(s) {cov['lots_missing_full_description']} have property details "
-             f"but no full_description block")
+             f"but no full_description block",
+             [(li, "no full description", None) for li in cov["lots_missing_full_description"]])
     if cov["lots_incomplete"]:
         detail = "; ".join(f"lot {li}: {cls}" for li, cls in cov["lots_incomplete"].items())
         flag("full_description_incomplete", "high",
-             f"full_description does not cover all descriptive spans ({detail})")
+             f"full_description does not cover all descriptive spans ({detail})",
+             [(li, "description misses " + ", ".join(cls), _first_detail(cov, li, "incomplete"))
+              for li, cls in sorted(cov["lots_incomplete"].items())])
     # A detail sitting inside another lot's description block: that block is
     # not short, the lot tag is wrong — a lot then carries a neighbour's survey
     # number or boundary. Med, not high: every value is still on the notice.
     if cov["lots_wrong_lot"]:
         detail = "; ".join(f"lot {li}: {cls}" for li, cls in cov["lots_wrong_lot"].items())
         flag("detail_wrong_lot", "med",
-             f"detail tagged to one lot sits in another lot's description ({detail})")
+             f"detail tagged to one lot sits in another lot's description ({detail})",
+             [(li, "a " + ", ".join(cls) + " sits in another lot's description",
+               _first_detail(cov, li, "wrong_lot"))
+              for li, cls in sorted(cov["lots_wrong_lot"].items())])
 
     score = max(0, 100 - sum(_PENALTY[i["severity"]] for i in issues))
     return {
         "score": score,
         "score_version": SCORE_VERSION,
         "issues": issues,
+        # lot -> [{code, msg, id}]: which lots each issue is about (not scored).
+        "lots": by_lot,
         "fields": sorted(present_fields),
         "stats": {
             "n_extractions": sum(classes.values()),
@@ -640,6 +698,11 @@ def validate(extractions, source_text: str = "") -> dict:
             "lots_missing_full_description": len(cov["lots_missing_full_description"]),
         },
     }
+
+
+def _first_detail(cov: dict, lot: str, kind: str):
+    """The first entity full_description_coverage reported for ``lot``."""
+    return next((d["id"] for d in cov["details"].get(lot, []) if d["kind"] == kind), None)
 
 
 def validate_stored(entities: list[dict], source_text: str = "") -> dict:

@@ -167,6 +167,14 @@
  #keys td{padding:4px 6px;border-bottom:1px solid #f1f5f9;vertical-align:top;overflow-wrap:anywhere}
  #keys td.lot{font-weight:700;color:#0f172a}
  #keys td.lot .nx{display:block;font-weight:400;font-size:10px;color:#dc2626}
+ #keys .lfails{display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin-top:3px}
+ #keys .lfail{font-weight:500;font-size:10px;line-height:1.3;white-space:nowrap;color:#991b1b;background:#fee2e2;border-radius:4px;padding:1px 5px}
+ #keys .lfail[data-fid]{cursor:pointer}
+ #keys .lfail[data-fid]:hover{text-decoration:underline}
+ #keys .kfsum{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 6px}
+ #keys .kfchip{font-size:11px;padding:1px 8px;border-radius:10px;border:1px solid #fca5a5;background:#fff;color:#991b1b;cursor:pointer}
+ #keys .kfchip.on{background:#dc2626;border-color:#dc2626;color:#fff}
+ #notice .pglbl{font-size:11px;color:#64748b;margin:10px 0 4px;border-top:1px dashed #94a3b8;padding-top:6px}
  #keys td.filled{cursor:pointer}
  #keys td.filled:hover{background:#eff6ff}
  #keys td.filled.cur{outline:2px solid #2563eb;outline-offset:-2px}
@@ -242,6 +250,9 @@
  html.dark #keys .kok{color:#4ade80}
  html.dark #keys .kdim{color:#94a3b8}
  html.dark #keys td.lot .nx{color:#f87171}
+ html.dark #keys .lfail{color:#fecaca;background:#450a0a}
+ html.dark #keys .kfchip{background:#1e293b;border-color:#7f1d1d;color:#fecaca}
+ html.dark #keys .kfchip.on{background:#b91c1c;border-color:#b91c1c;color:#fff}
  html.dark #keys td.filled .inh{color:#fcd34d}
  html.dark #keys .kgap{color:#fcd34d;background:#451a03}
  html.dark #keys .kgap.wl{color:#ddd6fe;background:#2e1065}
@@ -308,7 +319,7 @@ let CUR=null;
 // fids that actually got a <mark> this render, in document order — the prev/next
 // list. noticeFor = filename currently shown in the #notice pane (so save/verify
 // re-renders don't reload the image or reset its zoom).
-let curFid=null,PAINTED=[],noticeFor=null;
+let curFid=null,PAINTED=[],noticeFor=null,LOT_FAIL=null;
 // Bounding-box state (item 3): BLOCKS = the OCR/layout blocks for noticeFor;
 // BLINK = fid→blockId map when the blocks faithfully reassemble to CUR.markdown
 // (best-effort; empty when the markdown was edited/normalised). blocksFor tracks
@@ -783,25 +794,43 @@ function loadNotice(){
   if(isPdf){
     n.innerHTML=open+'<div id="pdfbox" style="color:#64748b;font-size:12px">loading pdf…</div>';
     renderPdf(n.querySelector("#pdfbox"),proxyUrl(fn))
-      .then(()=>{if(noticeFor===fn)ensureBlocks(fn);})
+      .then(()=>{if(noticeFor===fn){stitchedPages(n,fn);ensureBlocks(fn);}})
       .catch(()=>{const b=n.querySelector("#pdfbox");
-        if(noticeFor===fn&&b)b.textContent="pdf load failed — see annotate blocks ↗";});
+        if(noticeFor===fn&&b)b.textContent="pdf load failed — see annotate blocks ↗";
+        if(noticeFor===fn)stitchedPages(n,fn);});
     return;}
   n.innerHTML=open;
-  // img + absolutely-positioned box overlay in one relatively-positioned wrapper;
-  // zoom toggles the wrapper (not the img) so the %-positioned boxes track it.
+  n.appendChild(noticeImage(fn,CUR.public_url,true));
+  stitchedPages(n,fn);
+  ensureBlocks(fn);}
+// img + absolutely-positioned box overlay in one relatively-positioned wrapper;
+// zoom toggles the wrapper (not the img) so the %-positioned boxes track it.
+// Only the leader carries an overlay: the OCR boxes are its own blocks.
+function noticeImage(fn,url,boxes){
   const wrap=document.createElement("div");wrap.className="imgwrap";
   const img=new Image();img.alt="sale notice";
   img.onerror=()=>{
-    if(noticeFor!==fn)return;
+    if(!wrap.isConnected)return;
     if(!img.dataset.p){img.dataset.p="1";img.src=proxyUrl(fn);return;}
-    wrap.remove();
-    n.insertAdjacentHTML("beforeend",'<div class="nerr">no source image (missing on R2 and via proxy)</div>');};
+    wrap.insertAdjacentHTML("afterend",'<div class="nerr">no source image (missing on R2 and via proxy)</div>');
+    wrap.remove();};
   img.onclick=()=>wrap.classList.toggle("zoom");
-  const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page="1";
-  wrap.appendChild(img);wrap.appendChild(ovl);n.appendChild(wrap);
-  img.src=CUR.public_url||proxyUrl(fn);
-  ensureBlocks(fn);}
+  wrap.appendChild(img);
+  if(boxes){const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page="1";wrap.appendChild(ovl);}
+  img.src=url||proxyUrl(fn);
+  return wrap;}
+// A stitched notice's later pages (pipeline/notice_pages): their lots are
+// reviewed here, so their images show here too, under a page divider.
+function stitchedPages(n,fn){
+  const pages=(CUR.stitched_page_sources||[]).slice(1);
+  pages.forEach((p,i)=>{
+    if(noticeFor!==fn)return;
+    n.insertAdjacentHTML("beforeend",`<div class="pglbl">page ${i+2} of ${pages.length+1} · ${esc(p.filename)}</div>`);
+    const pdf=(p.content_type||"").includes("pdf")||p.doc_type==="pdf"||/\.pdf$/i.test(p.filename);
+    if(!pdf){n.appendChild(noticeImage(p.filename,p.public_url,false));return;}
+    const box=document.createElement("div");box.style.cssText="color:#64748b;font-size:12px";box.textContent="loading pdf…";n.appendChild(box);
+    renderPdf(box,proxyUrl(p.filename),false).catch(()=>{if(box.isConnected)box.textContent="pdf load failed";});
+  });}
 async function ensurePdfJs(){ // review.html idiom: legacy UMD build + explicit worker
   if(window.pdfjsLib)return;
   await new Promise((res,rej)=>{const s=document.createElement("script");
@@ -810,7 +839,7 @@ async function ensurePdfJs(){ // review.html idiom: legacy UMD build + explicit 
   if(!window.pdfjsLib)throw new Error("pdf.js failed to load");
   window.pdfjsLib.GlobalWorkerOptions.workerSrc=
     "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";}
-async function renderPdf(box,url){
+async function renderPdf(box,url,boxes=true){
   await ensurePdfJs();
   const doc=await pdfjsLib.getDocument(url).promise;
   if(!box.isConnected)return; // reviewer switched docs mid-load
@@ -820,8 +849,9 @@ async function renderPdf(box,url){
     const page=await doc.getPage(i),vp=page.getViewport({scale:1.5});
     const pw=document.createElement("div");pw.className="pagewrap";
     const c=document.createElement("canvas");c.width=vp.width;c.height=vp.height;
-    const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page=i;
-    pw.appendChild(c);pw.appendChild(ovl);box.appendChild(pw);
+    pw.appendChild(c);
+    if(boxes){const ovl=document.createElement("div");ovl.className="ovl"+(boxesHidden()?" boxes-hidden":"");ovl.dataset.page=i;pw.appendChild(ovl);}
+    box.appendChild(pw);
     await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;}
   if(doc.numPages>pages)box.insertAdjacentHTML("beforeend",
     `<div style="color:#64748b;font-size:12px">+${doc.numPages-pages} more pages — see annotate blocks ↗</div>`);}
@@ -958,9 +988,10 @@ function renderKeys(d){
     (k.missing?`<span class="kmiss">${k.missing} missing</span>`:`<span class="kok">complete</span>`)+
     (d.expected_lot_count!=null?`<span class="kdim">reviewer counted ${d.expected_lot_count} lot${d.expected_lot_count===1?"":"s"}</span>`:"")+
     (nx.length?`<span class="kred" title="lots the reviewer counted at classification that the extraction has no lot_index for">· ${ex.length} extracted, <b class="kred">${nx.length} not extracted</b></span>`:"")+
-    `</div><div class="kwrap"><table><thead><tr><th>lot</th>${KEY_DEFS.map(x=>`<th>${x.label}</th>`).join("")}</tr></thead><tbody>`;
+    `</div>`+failSummaryHtml(k.lots)+`<div class="kwrap"><table><thead><tr><th>lot</th>${KEY_DEFS.map(x=>`<th>${x.label}</th>`).join("")}</tr></thead><tbody>`;
   for(const lot of (collapse?ex:k.lots)){
-    h+=`<tr><td class="lot">lot ${esc(lot.lot_index)}${lot.extracted?"":`<span class="nx" title="counted at classification, but the extraction has no lot with this index">not extracted</span>`}</td>`;
+    if(LOT_FAIL&&!(lot.failures||[]).some(f=>f.failure===LOT_FAIL))continue;
+    h+=`<tr><td class="lot">lot ${esc(lot.lot_index)}${lot.extracted?"":`<span class="nx" title="counted at classification, but the extraction has no lot with this index">not extracted</span>`}${lotFailHtml(lot)}</td>`;
     for(const def of KEY_DEFS){
       const c=lot.cells[def.key]||{status:"missing"};
       const filling=FILL&&FILL.lot===lot.lot_index&&FILL.key===def.key;
@@ -1008,9 +1039,42 @@ function gapsHtml(lot){
     return `<span class="kgap${x.kind==="wrong_lot"?" wl":""}" data-fid="${esc(x.field_id||"")}" title="${esc(why)}\n(click to jump to it)">⚠ ${what}: “${esc(snip(x.text))}”</span>`;
   }).join("")+`</div>`;
 }
+// Every failure pill a lot is behind (api/review/extraction.lot_failures),
+// tagged on its lot cell with the queue's own pill label; a click jumps to the
+// value behind it. Labels mirror review.html's Failures bar.
+const FAIL_LABEL={"missing-lots":"missing lots","extra-lots":"extra lots","rerun":"needs re-run",
+  "description":"description gaps","wrong-lot":"wrong lot","reserve":"no reserve price",
+  "borrower":"no borrower","location":"no location","not-placed":"not placed",
+  "district-only":"district only","extent":"no extent","property-type":"no property type",
+  "uds":"UDS problem","creditor":"no bank","ungrounded":"ungrounded","odd-values":"odd values",
+  "contested":"contested","fuzzy":"fuzzy","illegible":"illegible","dropped":"dropped quotes"};
+// A failure with no entity of its own jumps to the lot's cell for it.
+const FAIL_KEY={"location":"location","not-placed":"location","district-only":"location",
+  "reserve":"reserve_price","property-type":"property_type","extent":"extent",
+  "description":"full_description","wrong-lot":"full_description"};
+function lotFailHtml(lot){
+  const f=lot.failures||[];
+  if(!f.length)return "";
+  return `<div class="lfails">`+f.map(x=>{
+    const fid=x.field_id||((lot.cells[FAIL_KEY[x.failure]]||{}).field_id)||"";
+    return `<span class="lfail"${fid?` data-fid="${esc(fid)}"`:""} title="${esc(x.why||"")}${fid?"\n(click to jump to it)":""}">${esc(FAIL_LABEL[x.failure]||x.failure)}</span>`;
+  }).join("")+`</div>`;
+}
+// One chip per failure with how many lots carry it; a click shows only those lots.
+function failSummaryHtml(lots){
+  const n={};
+  for(const l of lots)for(const f of new Set((l.failures||[]).map(x=>x.failure)))n[f]=(n[f]||0)+1;
+  const keys=Object.keys(FAIL_LABEL).filter(k=>n[k]);
+  if(LOT_FAIL&&!n[LOT_FAIL])LOT_FAIL=null;
+  if(!keys.length)return "";
+  return `<div class="kfsum">`+keys.map(k=>`<button class="kfchip${LOT_FAIL===k?" on":""}" onclick="setLotFail('${k}')" title="${LOT_FAIL===k?"show every lot again":"show only the lots behind this failure"}">${esc(FAIL_LABEL[k])} · ${n[k]} lot${n[k]===1?"":"s"}</button>`).join("")+`</div>`;
+}
+function setLotFail(k){LOT_FAIL=LOT_FAIL===k?null:k;if(CUR)renderKeys(CUR);}
 let SHOW_NX=false;
 function toggleNx(){SHOW_NX=!SHOW_NX;if(CUR)renderKeys(CUR);}
 document.addEventListener("click",e=>{
+  const lf=e.target.closest("#keys .lfail[data-fid]");
+  if(lf&&lf.dataset.fid){e.stopPropagation();setCur(lf.dataset.fid,{mark:true,card:true});return;}
   const gap=e.target.closest("#keys .kgap[data-fid]");
   if(gap&&gap.dataset.fid){e.stopPropagation();setCur(gap.dataset.fid,{mark:true,card:true});return;}
   const td=e.target.closest("#keys td.filled[data-fid]");
