@@ -345,6 +345,10 @@ _STALE_CYPHER = (
 #: .lot_place): what "not placed" and "district only" split by district.
 _UNPLACED_LOT = ("coalesce(_l.place_status, '') <> 'outside-tamil-nadu' "
                  "AND _l.place_town IS NULL AND _l.taluk IS NULL")
+#: Ordered as the reviewer works a notice: missing lots, extra lots, reserve
+#: price, lot order, auction date, description, property type, location,
+#: extent, possession — then the rest. The filter bar (web/review.html) and
+#: each card's pills follow this order.
 EXTRACTION_FAILURES: dict[str, dict] = {
     # Only the reviewer's own lot count, never validators.py lot_under_recall:
     # that heuristic counts "S.No" markers, which survey numbers also carry,
@@ -353,11 +357,13 @@ EXTRACTION_FAILURES: dict[str, dict] = {
                       "cypher": f"coalesce(d.extraction_lot_count < {_EXPECTED_LOTS}, false)"},
     "extra-lots":    {"codes": (),
                       "cypher": f"coalesce(d.extraction_lot_count > {_EXPECTED_LOTS}, false)"},
-    "rerun":         {"codes": (), "cypher": _STALE_CYPHER},
+    "reserve":       {"codes": ("missing_reserve_price", "lot_missing_reserve")},
+    # The next three are pipeline/key_entities.review_codes, not validators.py.
+    "lot-order":     {"codes": ("lot_order_off",)},
+    "auction-date":  {"codes": ("lot_missing_auction_date",)},
     "description":   {"codes": ("missing_full_description", "full_description_incomplete")},
     "wrong-lot":     {"codes": ("detail_wrong_lot",)},
-    "reserve":       {"codes": ("missing_reserve_price", "lot_missing_reserve")},
-    "borrower":      {"codes": ("missing_borrower", "lot_missing_borrower")},
+    "property-type": {"codes": ("missing_property_type",)},
     "location":      {"codes": ("missing_location", "lot_missing_location")},
     # Read but not placed: the lot HAS a location, it just matched nothing
     # official (pipeline/place_resolution), so "location" never fires on it.
@@ -368,7 +374,9 @@ EXTRACTION_FAILURES: dict[str, dict] = {
     "district-only": {"codes": (), "cypher": f"EXISTS {{ MATCH (d)-[:HAS_LOT]->(_l:Lot) "
                                              f"WHERE {_UNPLACED_LOT} AND _l.district IS NOT NULL }}"},
     "extent":        {"codes": ("missing_extent",)},
-    "property-type": {"codes": ("missing_property_type",)},
+    "possession":    {"codes": ("lot_missing_possession", "possession_type_invalid")},
+    "rerun":         {"codes": (), "cypher": _STALE_CYPHER},
+    "borrower":      {"codes": ("missing_borrower", "lot_missing_borrower")},
     "uds":           {"codes": ("missing_uds", "uds_parent_as_own_area")},
     "creditor":      {"codes": ("missing_secured_creditor",)},
     "ungrounded":    {"codes": ("ungrounded",)},
