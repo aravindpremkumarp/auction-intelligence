@@ -49,8 +49,9 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 4   # 4: full_description_incomplete stops charging details
+SCORE_VERSION = 5   # 4: full_description_incomplete stops charging details
                     # that are not a truncation; detail_wrong_lot (med) added
+                    # 5: one span tagged to several lots is the nearest lot's
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -212,14 +213,35 @@ def _covered_by_text(txt: str, cls: str, fd: dict) -> bool:
     return cls != "boundary" and _same_fact(txt, fd["text"])
 
 
-def _outside_reason(span, txt, cls, kind, lot, fd, other_blocks, source_text):
+def _gap(span, block) -> int:
+    """Characters between a span and a block (0 when they touch or overlap)."""
+    (s, t), (a, b) = span, block
+    return max(0, a - t, s - b)
+
+
+def _shared_home(span, lot, fd_span, sharers: dict) -> str | None:
+    """The lot a detail belongs to when the model tagged the very same span to
+    several lots: the one whose description block lies nearest it. ``sharers``
+    maps each OTHER lot carrying this span to its block. None when that is
+    ``lot`` itself (or nobody else carries it)."""
+    if not sharers:
+        return None
+    best = min([(lot, fd_span)] + sorted(sharers.items()), key=lambda kv: _gap(span, kv[1]))
+    return None if best[0] == lot else best[0]
+
+
+def _outside_reason(span, txt, cls, kind, lot, fd, other_blocks, source_text,
+                    sharers: dict | None = None):
     """Why a placed detail outside its lot's block is not a truncation, or None
     when it is one. "covered" means the block does hold it after all;
-    "wrong_lot" that it sits in another lot's block; anything else names the
+    "wrong_lot" that it sits in another lot's block, or that the same span is
+    tagged to another lot whose block lies nearer; anything else names the
     kind of record it is (reported, not scored)."""
     s, t = span
     a, b = fd["span"]
     if any(x <= s and t <= y for other, (x, y) in other_blocks if other != lot):
+        return "wrong_lot"
+    if _shared_home(span, lot, fd["span"], sharers or {}):
         return "wrong_lot"
     if s < b and t > a:
         return "covered"                   # straddles the block's edge
@@ -307,30 +329,50 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                 slot["text"] = (slot["text"] + " " + txt).strip()
         elif c in _DESCRIPTION_CLASSES and (sp or txt):
             kind = normalize_identifier_kind(attrs.get("kind"))[0] if c == "identifier" else None
-            gran_by_lot.setdefault(li, []).append((sp, txt, c, kind))
+            gran_by_lot.setdefault(li, []).append(
+                (sp, txt, c, kind, getattr(e, "id", None),
+                 str(getattr(e, "extraction_text", "") or "")))
     for slot in fd_by_lot.values():
         slot["alnum"] = _alnum(slot["text"])
     other_blocks = [(li, sp) for li, slot in fd_by_lot.items() for sp in slot["spans"]]
+    # The same span tagged to several lots (a table row's village copied onto
+    # every lot): who else carries it, with their blocks — see _shared_home.
+    span_lots: dict = {}
+    for li, items in gran_by_lot.items():
+        for sp, _t, c, *_ in items:
+            if sp:
+                span_lots.setdefault((c, sp), set()).add(li)
 
     missing_fd, incomplete, unverifiable, wrong_lot, excused = [], {}, {}, {}, {}
+    details: dict = {}            # lot -> [{kind, cls, text, id, in_lot}]
     for li, items in gran_by_lot.items():
         fd = fd_by_lot.get(li)
         if fd is None or (fd["span"] is None and not fd["text"]):
             missing_fd.append(li)
             continue
         outside, unchecked, elsewhere, reasons = set(), set(), set(), {}
-        for sp, txt, cls, kind in items:
+        for sp, txt, cls, kind, eid, raw in items:
             by_span = (sp and fd["span"] and fd["span"][0] <= sp[0] <= sp[1] <= fd["span"][1])
             if by_span or _covered_by_text(txt, cls, fd):
                 continue
             if not (sp and fd["span"]):
                 unchecked.add(cls)     # no span to place it by — see docstring
                 continue
-            why = _outside_reason(sp, txt, cls, kind, li, fd, other_blocks, source_text)
+            sharers = {o: fd_by_lot[o]["span"] for o in span_lots.get((cls, sp), ())
+                       if o != li and fd_by_lot.get(o, {}).get("span")}
+            why = _outside_reason(sp, txt, cls, kind, li, fd, other_blocks, source_text,
+                                  sharers)
             if why is None:
                 outside.add(cls)       # both placed, and it really is outside
+                details.setdefault(li, []).append(
+                    {"kind": "incomplete", "cls": cls, "text": raw, "id": eid, "in_lot": None})
             elif why == "wrong_lot":
                 elsewhere.add(cls)
+                home = next((o for o, (x, y) in other_blocks
+                             if o != li and x <= sp[0] and sp[1] <= y), None) \
+                    or _shared_home(sp, li, fd["span"], sharers)
+                details.setdefault(li, []).append(
+                    {"kind": "wrong_lot", "cls": cls, "text": raw, "id": eid, "in_lot": home})
             elif why != "covered":
                 reasons.setdefault(why, set()).add(cls)
         if outside:
@@ -348,6 +390,9 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
         "lots_unverifiable": unverifiable,
         "lots_wrong_lot": wrong_lot,
         "lots_excused": excused,
+        # Which details, per lot — what the review page lists under a lot's
+        # description so a reviewer sees the gap without hunting for it.
+        "details": details,
     }
 
 
@@ -606,12 +651,18 @@ def validate_stored(entities: list[dict], source_text: str = "") -> dict:
     Shims each dict to the attribute shape validate() expects (extraction_class /
     attributes / char_interval) — no LLM call, pure re-validation of stored output.
     """
+    return validate(shim_stored(entities), source_text=source_text)
+
+
+def shim_stored(entities: list[dict]) -> list:
+    """Stored entity dicts in the attribute shape validate() reads; ``id`` is
+    the entity's stored id (or its position), so a finding can point at it."""
     from types import SimpleNamespace
-    shims = [SimpleNamespace(
+    return [SimpleNamespace(
+        id=e.get("id") or str(i),
         extraction_class=e.get("cls"),
         extraction_text=e.get("text") or "",
         attributes=e.get("attrs") or {},
         char_interval=None if e.get("start") is None else SimpleNamespace(
             start_pos=e.get("start"), end_pos=e.get("end")),
-    ) for e in entities]
-    return validate(shims, source_text=source_text)
+    ) for i, e in enumerate(entities) if isinstance(e, dict)]

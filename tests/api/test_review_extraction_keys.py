@@ -223,3 +223,47 @@ def test_write_corrections_restamps_key_score(monkeypatch):
     monkeypatch.setattr(ex, "stamp_key_scores", lambda fns: calls.setdefault("fns", fns))
     assert ex._write_corrections("n.jpg", {"3": {"value": "v"}})
     assert calls["fns"] == ["n.jpg"]
+
+
+# ── description gaps, per lot ───────────────────────────────────────────────
+# The "description gaps" / "wrong lot" pills say a notice has a problem; the
+# key table says which lot and which detail, so a 50-lot notice is not a hunt.
+
+_GAP_MD = ("Lot 1: All that land in S.F.No.179/6, Ponmeni Village. Reserve Rs.9,50,000. "
+           "Bounded by: South by: 30 feet road. "
+           "Lot 2: A flat bearing Flat No.G1 in Block C.")
+
+
+def _gap_ents():
+    md = _GAP_MD
+
+    def at(cls, text, lot, i, **attrs):
+        s = md.index(text)
+        return {"id": i, "cls": cls, "text": text, "start": s, "end": s + len(text),
+                "attrs": {"lot_index": lot, **attrs}}
+    return [
+        at("full_description", "All that land in S.F.No.179/6, Ponmeni Village.", "1", "fd1"),
+        at("boundary", "South by: 30 feet road", "1", "b1"),
+        at("full_description", "A flat bearing Flat No.G1 in Block C.", "2", "fd2"),
+        at("identifier", "Block C", "1", "id1", kind="block"),
+    ]
+
+
+def test_detail_lists_each_lots_description_gaps(monkeypatch):
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _row(
+        markdown=_GAP_MD, extraction_json=json.dumps(_gap_ents()), expected_lot_count=2))
+    lots = {lot.lot_index: lot for lot in ex.extraction_detail("n.jpg", None).keys.lots}
+    gaps = {(g.kind, g.cls, g.field_id, g.in_lot) for g in lots["1"].description_gaps}
+    assert gaps == {("incomplete", "boundary", "b1", None),
+                    ("wrong_lot", "identifier", "id1", "2")}
+    assert lots["1"].description_gaps[0].text
+    assert lots["2"].description_gaps == []
+
+
+def test_only_details_still_outside_are_listed(monkeypatch):
+    """Once the boundary is gone, only the mis-tagged identifier is listed."""
+    ents = [e for e in _gap_ents() if e["id"] != "b1"]
+    monkeypatch.setattr(ex, "get_extraction", lambda fn: _row(
+        markdown=_GAP_MD, extraction_json=json.dumps(ents), expected_lot_count=2))
+    lots = {lot.lot_index: lot for lot in ex.extraction_detail("n.jpg", None).keys.lots}
+    assert [g.kind for g in lots["1"].description_gaps] == ["wrong_lot"]

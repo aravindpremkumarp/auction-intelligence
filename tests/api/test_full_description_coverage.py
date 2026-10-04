@@ -273,3 +273,18 @@ def test_without_the_page_the_context_tests_are_skipped():
     page = "Mortgaged Property Address: Flat No S4, Keelavalavu. " + FD1
     ex = [_block(page, FD1), _at(page, "location", "Keelavalavu")]
     assert full_description_coverage(ex)["lots_incomplete"] == {"1": ["location"]}
+
+
+def test_one_span_tagged_to_several_lots_is_the_nearest_lots():
+    """A table row's village the model copied onto lots 2 and 50: it sits by
+    lot 50's block, so for lot 2 it is a wrong-lot tag, not a short block."""
+    page = ("Lot 2: a flat in Kattangulathur. " + "x" * 300 +
+            " Lot 50: a plot in Kundrathur. KUNDRATHUR 'B' VILLAGE, Kundrathur Taluk.")
+    fd2, fd50 = "Lot 2: a flat in Kattangulathur.", "Lot 50: a plot in Kundrathur."
+    village = "KUNDRATHUR 'B' VILLAGE, Kundrathur Taluk"
+    ex = [_block(page, fd2, lot="2"), _block(page, fd50, lot="50"),
+          _at(page, "location", village, lot="2"), _at(page, "location", village, lot="50")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}       # lot 50's block names Kundrathur
+    assert cov["lots_wrong_lot"] == {"2": ["location"]}
+    assert cov["details"]["2"][0]["in_lot"] == "50"
