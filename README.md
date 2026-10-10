@@ -433,7 +433,7 @@ Census 2011 taluk lineage, taluk neighbours, OSM village aliases
 The review UI's **resolution queue** (`/review/resolution`) shows lookalike
 pairs and conflicts; the **village queue** (`/review/resolution/villages`)
 takes one verdict per spelling per taluk, including "pick several" for split
-villages. "Apply my decisions" runs the resolvers; the Sunday
+villages, sorted biggest-first or best-suggestion-first with a score band. "Apply my decisions" runs the resolvers; the Sunday
 `resolve-entities.yml` workflow is the safety net that applies stored
 verdicts if nobody presses it. `resolve-scorecard.yml` publishes a read-only
 weekly scorecard (linkage, places, agreement, contested fields, queue size)
