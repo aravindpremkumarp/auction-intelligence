@@ -1,11 +1,11 @@
 """
 tests/api/test_eval_agent_bindings.py
 -------------------------------------
-The EVAL_AGENT selector and the v2 bindings' output shapes.
+The eval bindings' output shapes. The tiered loop (v2) is the agent under
+test now that the pydantic-ai agent is retired.
 
-A migration gate is only meaningful if both agents are measured by the same
-ruler, so what matters here is that `golden_v2` / `conversation_v2` produce
-exactly the shapes the existing evaluators already score — including the
+What matters here is that `golden_v2` / `conversation_v2` produce exactly the
+shapes the evaluators score — including the
 panel state, derived with the real helpers rather than a re-implementation.
 Panel desync is precisely what the conversation evaluators exist to catch,
 and an eval that models the panel differently from production cannot catch
@@ -17,35 +17,16 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from evals import tasks
 
 
 # ── selection ───────────────────────────────────────────────────────────────
 
-def test_defaults_to_v1(monkeypatch):
-    monkeypatch.delenv("EVAL_AGENT", raising=False)
-    assert tasks.agent_id() == "v1"
-    assert tasks.golden_task() is tasks.golden_v1
-    assert tasks.conversation_task() is tasks.conversation_v1
-
-
-def test_selects_v2(monkeypatch):
-    monkeypatch.setenv("EVAL_AGENT", "v2")
+def test_the_tiered_loop_is_the_agent_under_test():
+    """The pydantic-ai agent (v1) is retired, so there is nothing to select."""
+    assert tasks.agent_id() == "v2"
     assert tasks.golden_task() is tasks.golden_v2
     assert tasks.conversation_task() is tasks.conversation_v2
-
-
-@pytest.mark.parametrize("value", ["", "V3", "tiered", "  "])
-def test_unknown_value_falls_back_rather_than_crashing_a_ci_run(monkeypatch, value):
-    monkeypatch.setenv("EVAL_AGENT", value)
-    assert tasks.agent_id() == "v1"
-
-
-def test_case_and_whitespace_tolerant(monkeypatch):
-    monkeypatch.setenv("EVAL_AGENT", "  V2 ")
-    assert tasks.agent_id() == "v2"
 
 
 # ── v2 golden binding ───────────────────────────────────────────────────────

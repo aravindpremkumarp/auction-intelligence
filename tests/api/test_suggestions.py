@@ -5,7 +5,7 @@ calls and the TTL cache.
 
 Loaded by file path (not `from api.chat.suggestions import ...`) so the test
 stays dependency-free: importing the api.chat package pulls in the router and
-its pydantic_ai/fastapi deps, which this module doesn't need."""
+its fastapi deps, which this module doesn't need."""
 from __future__ import annotations
 
 import importlib.util

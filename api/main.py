@@ -95,9 +95,9 @@ app = FastAPI(
 )
 
 # Optional Logfire/OpenTelemetry tracing — no-op unless LOGFIRE_TOKEN (or a
-# generic OTLP endpoint) is set. Instruments pydantic-ai (agent + LLM + tool
-# spans) and FastAPI (per-request root span) so a /chat turn shows a full
-# trace waterfall. See api/telemetry.py.
+# generic OTLP endpoint) is set. Instruments FastAPI (per-request root span)
+# and HTTPX (one span per model call) so a chat turn shows a full trace
+# waterfall. See api/telemetry.py.
 configure_telemetry(app)
 
 
@@ -368,7 +368,7 @@ if WEB_DIR.exists():
     # boots and its own router renders the right screen. In production a CDN
     # rewrite covers this, but the dev server (and any non-rewriting host)
     # needs explicit routes or refresh dies on a JSON 404/405.
-    #   - GET /chat does NOT collide with the chat API (that's POST /chat).
+    #   - GET /chat has no API route behind it (the chat API is POST /chat/agent3).
     #   - GET /property/{id} has no API route at this path.
     #   - /watchlist is intentionally NOT here: GET /watchlist is the
     #     authenticated data API, so an HTML fallback would shadow it.
@@ -382,7 +382,7 @@ if WEB_DIR.exists():
 
     # GET /chat/{thread_id} is the deep link to a saved conversation so a
     # refresh restores the open chat instead of dropping into a new one. It's
-    # a page route (the chat API is POST /chat and POST /chat/stream — no GET
+    # a page route (the chat API is POST /chat/agent3[/stream] — no GET
     # collision); the client router reads the id and reopens the thread.
     @app.get("/chat/{thread_id}")
     def chat_thread_page(thread_id: str, request: Request) -> Response:

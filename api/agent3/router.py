@@ -285,10 +285,10 @@ async def chat_agent3(request: Request, req: ChatAgent3Request,
 async def chat_agent3_stream(request: Request, req: ChatAgent3Request,
                              user: UserOut | None = Depends(get_optional_user)):
     ctx = await _prepare(request, req, user)
-    from api.chat.router import _sse, _with_heartbeat
+    from api.chat.sse import sse, with_heartbeat
 
     return StreamingResponse(
-        _with_heartbeat(_stream_turn(ctx, _sse)),
+        with_heartbeat(_stream_turn(ctx, sse)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
