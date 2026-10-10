@@ -6,7 +6,7 @@ functions, no I/O — the router owns the one Neo4j fetch.
 
 Loaded by file path (not `from api.chat.panel import ...`) so the test
 stays dependency-free: importing the api.chat package pulls in the router
-and its pydantic_ai/fastapi deps, which this module doesn't need."""
+and its fastapi deps, which this module doesn't need."""
 from __future__ import annotations
 
 import importlib.util

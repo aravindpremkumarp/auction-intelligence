@@ -3,44 +3,6 @@
 Organized by component, then priority (P0 highest through P4). Completed items
 move to the bottom section with the version they shipped in.
 
-## Test suite
-
-### Pre-existing test failure on `main` (1, was 8)
-
-**Priority:** P2 (was P0)
-**Noticed:** 2026-08-09, on branch `claude/pull-latest-main-f081ff` (gstack /ship)
-**Updated:** 2026-08-14 — 7 of the 8 now pass; only the leak check remains.
-
-One test still fails on clean `main`:
-
-| Test | File |
-|---|---|
-| `test_deferred_tools_hidden_on_first_request` | `tests/api/test_deferred_capabilities.py` |
-
-It asserts that deferred tools stay out of the always-sent tool surface, and
-fails because `run_cypher` and `describe_schema` are present on the first
-request:
-
-```
-AssertionError: deferred tools leaked into the always-sent surface:
-{'run_cypher', 'describe_schema'}
-```
-
-So this is no longer the async-context-manager drift the original entry
-diagnosed — that cluster (chat_stream, the other three deferred_capabilities
-tests, detail_batching) is fixed, as are `test_property_og` and `test_storage`.
-Either the two tools were deliberately promoted to always-sent and the test was
-not updated, or the deferral genuinely regressed. Answering that is the task.
-
-Priority drops from P0 to P2: one known-red test is still noise against the next
-regression, but the suite is legible again (1,155 passing).
-
-Repro:
-
-```bash
-python -m pytest tests/api/test_deferred_capabilities.py -q
-```
-
 ## Pipeline
 
 ### Renew `MINERU_API_KEY` and make OCR failures loud
@@ -97,3 +59,9 @@ image". Needs a re-scrape from the source, or re-upload from an intact local
 copy if one exists.
 
 ## Completed
+
+### Pre-existing test failure on `main` (`test_deferred_capabilities.py`)
+
+**Closed:** 2026-10-10, with the removal of the pydantic-ai chat. The test
+covered that agent's deferred-tool mechanism; the agent and the test are both
+gone. (It was already passing on `main` by then.)

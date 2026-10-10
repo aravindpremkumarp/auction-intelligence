@@ -24,13 +24,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# The always-on, model-visible tools the agent exposes (api/agent.py). Every
-# `acceptable_tools` entry is validated against this set by the shape test, and
-# the set itself is cross-checked against api/agent.py's actually-decorated
-# tools (see tests/api/test_golden_questions.py::test_known_tools_match_agent)
+# The model-visible tools of the agent under test (the tiered loop,
+# api/chat/v2/tools.py). Every `acceptable_tools` entry is validated against
+# this set by the shape test, and the set itself is pinned to v2's actual tool
+# surface (tests/api/test_chat_v2_tools.py::test_tool_names_match_the_eval_catalogue)
 # so a renamed/removed tool fails the shape test instead of silently never
-# matching in the live eval. Excludes `query_user_dossier`, which ships dark
-# (registered conditionally, not via a decorator) and is not exercised here.
+# matching in the live eval. Excludes `query_user_dossier`, which v2 never
+# had (it belonged to the retired pydantic-ai agent, behind a flag).
 KNOWN_TOOLS: set[str] = {
     "search_auctions",
     "semantic_search",

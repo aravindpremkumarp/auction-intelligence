@@ -1,9 +1,10 @@
 """
 api/chat
 --------
-The conversational agent surface: `/chat` (run the pydantic-ai agent over the
-Neo4j graph) and `/modes` (the mode registry the UI renders). Also owns the
-rolling-scope + history-trimming helpers that keep multi-turn context cheap.
+Chat plumbing shared across the chat endpoints: quota and model gating
+(`gating.py`), SSE framing (`sse.py`), panel sync (`panel.py`), and the
+read-only `/modes`, `/suggestions`, `/chat/models` router. The admin loops
+live in `v2/` and `deep/`; the chat users talk to is `api/agent3/`.
 """
 from __future__ import annotations
 

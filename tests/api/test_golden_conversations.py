@@ -123,15 +123,6 @@ def test_carry_forward_keys_match_source() -> None:
     )
 
 
-def test_router_reexports_the_shared_key_set() -> None:
-    """The router alias must stay bound to the shared definition — a local
-    redefinition there would silently fork v1's scope from v2's."""
-    from api.chat.router import _CARRY_FORWARD_FILTER_KEYS
-    from api.chat.scope_keys import CARRY_FORWARD_FILTER_KEYS as SOURCE
-
-    assert _CARRY_FORWARD_FILTER_KEYS is SOURCE
-
-
 def test_any_sentinel_usable() -> None:
     """ANY is a plain sentinel value usable in expect_filters."""
     t = Turn("x", expect_filters={"deadline_within_days": ANY})

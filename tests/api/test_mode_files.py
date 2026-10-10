@@ -4,12 +4,13 @@ tests/api/test_mode_files.py
 Guards against mode-file drift. Mode files are prompts the agent obeys, but
 nothing type-checks them — twice now they've named tools that don't exist:
 `compare.md` once instructed a `score_auction` tool before it was built, and
-kept instructing it after it was removed. Tool docstrings are guarded by
-test_prompt_budget; this gives the active mode files (and the shared
-context + role prompt) the same protection.
+kept instructing it after it was removed. This guards the active mode files
+and the shared policy text.
 
-Dependency-free by design (ast + regex, no api imports), like
-test_prompt_budget.
+`modes/_shared.md` is read by the admin loops (`/chat/v2`, `/chat/deep`),
+whose tool surface is `api/chat/v2/tools.py`. The pydantic-ai agent the mode
+files were written for is retired; agent3 has its own instructions and skills
+(`api/agent3/`), guarded by its own tests.
 """
 from __future__ import annotations
 
@@ -18,7 +19,6 @@ import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_AGENT_PY = _REPO_ROOT / "api" / "agent.py"
 _ROUTER_PY = _REPO_ROOT / "api" / "chat" / "router.py"
 _MODES_DIR = _REPO_ROOT / "modes"
 
@@ -41,17 +41,11 @@ _TOOL_CALL_RE = re.compile(r"`([a-z_][a-z0-9_]*)\(")
 
 
 def _current_tools() -> set[str]:
-    """Names of functions decorated @agent.tool / @agent.tool_plain, plus
-    conditionally-registered tools (query_user_dossier)."""
-    mod = ast.parse(_AGENT_PY.read_text(encoding="utf-8"))
-    tools = {
-        n.name
-        for n in ast.walk(mod)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and any("tool" in ast.dump(d) for d in n.decorator_list)
-    }
-    tools.add("query_user_dossier")  # registered when dossiers_enabled()
-    return tools
+    """The tools the loops that read these files can actually call, plus the
+    conditionally registered dossier tool the mode files mention."""
+    from api.chat.v2 import tools
+
+    return set(tools.ALL_TOOLS) | {"query_user_dossier"}
 
 
 def _active_mode_files() -> list[Path]:
@@ -59,24 +53,12 @@ def _active_mode_files() -> list[Path]:
     return sorted(p for p in _MODES_DIR.glob("*.md"))
 
 
-def _role_prompt() -> str:
-    """The role prompt text, read from `api/policy.py` where it now lives.
-
-    It moved out of `api/agent.py` so /chat/v2 could share the policy rules
-    rather than keep a paraphrase — the golden eval caught v2 missing the
-    scope boundary entirely. `_ROLE_PROMPT` is now composed from named
-    constants, so an AST scan for a literal in agent.py finds a Name.
-    Importing is safe here: api/policy.py is pure text with no dependencies.
-    """
-    from api.policy import ROLE_PROMPT
-
-    return ROLE_PROMPT
-
-
 def test_no_retired_tool_named_in_active_prompts():
     offenders: list[str] = []
     sources = {p.name: p.read_text(encoding="utf-8") for p in _active_mode_files()}
-    sources["_ROLE_PROMPT"] = _role_prompt()
+    from api.policy import SHARED_POLICY
+
+    sources["SHARED_POLICY"] = SHARED_POLICY
     for name, text in sources.items():
         for tool in RETIRED_TOOLS:
             if tool in text:

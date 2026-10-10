@@ -84,7 +84,10 @@ let userSort = 'date_asc';
 // its AI message, so no extra per-message snapshot is persisted.
 let panelSnapshotIndex = null;
 let detailChatHistory = [];
-let detailApiMessageHistory = null;   // server-format message_history for the active property chat — must thread across turns or follow-ups lose context
+// agent3 keeps the property chat's transcript server-side under a thread id.
+// The saved conversation id is sent as that id; the server answers with the
+// one it actually used (it mints a fresh one if the id isn't this caller's).
+let detailChatThreadId = null;
 let currentPropertyChatId = null;     // UUID of the active chat in the right-side property panel
 let propertyChatList = [];            // [{id, title, property_id, updated_at}] for the panel history list
 let _pendingPropertyChatId = null;    // one-shot: when a sidebar click routes to a specific chat id, honored on the next loadDetailChat
@@ -3083,7 +3086,7 @@ function _relTime(iso) {
 
 async function loadDetailChat(propertyId) {
   detailChatHistory = [];
-  detailApiMessageHistory = null;
+  detailChatThreadId = null;
   propertyChatList = [];
   // Honor a one-shot pending chat id from the sidebar; otherwise pick the most
   // recent chat for this property.
@@ -3122,7 +3125,7 @@ async function loadDetailChat(propertyId) {
       if (r2 && r2.ok) {
         const data = await r2.json();
         detailChatHistory = Array.isArray(data.messages) ? data.messages : [];
-        detailApiMessageHistory = data.api_history || null;
+        detailChatThreadId = null;
         currentPropertyChatId = data.id;
       } else {
         currentPropertyChatId = _mintChatId();
@@ -3145,7 +3148,7 @@ async function saveDetailChat() {
   const payload = {
     title: _propertyChatTitle(),
     messages,
-    api_history: detailApiMessageHistory,
+    api_history: null,
     results: [],
     total_count: null,
     property_id: pid,
@@ -3180,7 +3183,7 @@ function clearDetailChat() {
   // saveDetailChat already persisted each turn.
   currentPropertyChatId = _mintChatId();
   detailChatHistory = [];
-  detailApiMessageHistory = null;
+  detailChatThreadId = null;
   renderDetailChat();
   renderPropertyChatHistory();
 }
@@ -3193,7 +3196,7 @@ async function loadPropertyChat(chatId) {
     const data = await r.json();
     currentPropertyChatId = data.id;
     detailChatHistory = Array.isArray(data.messages) ? data.messages : [];
-    detailApiMessageHistory = data.api_history || null;
+    detailChatThreadId = null;
     renderDetailChat();
     renderPropertyChatHistory();
   } catch(e) { console.warn('[property-chat] load failed', e); }
@@ -3240,37 +3243,38 @@ async function askAboutProperty(text) {
   detailChatHistory.push({ role: 'user', text });
   detailChatHistory.push({ role: 'ai thinking', text: '' });
   renderDetailChat();
-  // Snapshot the api history we send with this turn — if the user switches
-  // property mid-flight, the response is for the snapshot, not the new state.
-  const apiHistorySnapshot = detailApiMessageHistory;
+  // Snapshot the thread we send this turn on — if the user switches property
+  // mid-flight, the response belongs to the snapshot, not the new state.
+  const threadSnapshot = detailChatThreadId || currentPropertyChatId || null;
   const preamble = `Regarding auction ${auctionId} (${currentDetailTitle} in ${currentDetailLoc}): ${text}`;
   let aiEntry;
-  let nextApiHistory = apiHistorySnapshot;
+  let nextThreadId = threadSnapshot;
   const startedAt = performance.now();
   try {
-    // The property-detail chat stays on v1 in Phase 1: it threads
-    // `message_history`, which v2 neither accepts nor returns. It moves over
-    // with the rest of the v2 work, not as a side effect of this flag.
-    const res = await authFetch(`${API_BASE}/chat`, {
+    // Same agent as the main chat (agent3). It keeps the transcript under
+    // `thread_id`, so only the new message travels — no history to resend.
+    const res = await authFetch(`${API_BASE}/chat/agent3`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: preamble, message_history: apiHistorySnapshot }),
+      body: JSON.stringify({ message: preamble, thread_id: threadSnapshot }),
     });
+    // Quota (429) and login (401) get the same handling as the main chat.
+    if (!res.ok) throw _chatHttpError(res);
     const resp = await res.json();
-    nextApiHistory = resp.message_history || apiHistorySnapshot;
+    nextThreadId = resp.thread_id || threadSnapshot;
     const answer = (resp.answer || '').trim();
     const elapsedMs = performance.now() - startedAt;
     aiEntry = answer
       ? { role: 'ai', text: answer, artifacts: resp.artifacts || [], elapsedMs }
       : { role: 'ai', text: "_The agent didn't return an answer. Try rephrasing — e.g. ask about the EMD, schedule, reserve price, or borrower._", artifacts: resp.artifacts || [], elapsedMs };
   } catch(e) {
-    aiEntry = { role: 'ai', text: `Server unavailable: ${e.message}`, elapsedMs: performance.now() - startedAt };
+    aiEntry = { role: 'ai', text: `Couldn't get an answer: ${e.message}`, elapsedMs: performance.now() - startedAt };
   }
-  // If the user navigated to a different property while /chat was in flight,
-  // the response no longer applies to what's on screen — drop it silently
-  // rather than corrupt the new property's chat.
+  // If the user navigated to a different property while the turn was in
+  // flight, the response no longer applies to what's on screen — drop it
+  // silently rather than corrupt the new property's chat.
   if (currentDetailId !== auctionId) return;
-  detailApiMessageHistory = nextApiHistory;
+  detailChatThreadId = nextThreadId;
   _removeDetailThinking();
   detailChatHistory.push(aiEntry);
   renderDetailChat();
