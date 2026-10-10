@@ -728,8 +728,9 @@ def test_write_lot_matches_links_the_lot_and_records_the_decision(monkeypatch):
           "reason": "exact"}])
     assert n == 1
     # link the lot, retire its other edge on this notice, delete the stale
-    # decision, merge the new one
-    assert len(calls) == 4
+    # decision, merge the new one, flag a listing whose lot was dropped as
+    # outside Tamil Nadu
+    assert len(calls) == 5
 
     link_cypher, link_params = calls[0]
     # Phase 4: the edge IS the resolution — the string it replaced is gone.

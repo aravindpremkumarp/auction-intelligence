@@ -492,6 +492,57 @@ def test_a_dry_run_never_rebuilds():
     assert src.index("if dry_run") < src.index("rebuild_document_lots(filename)")
 
 
+# ── lots outside Tamil Nadu ─────────────────────────────────────────────────
+
+def _promote_with_places(monkeypatch, out_of_area_keys):
+    """promote_document over two lots with lot_place stubbed; returns the
+    (query, params) pairs it wrote."""
+    lots = [{"lot_key": f"n.jpg#{i}", "lot_index": str(i), "props": {},
+             "identifiers": [], "measurements": [], "headline_kind": None,
+             "boundaries": {}, "schedules": [], "facts": [], "parties": [],
+             "auction": None, "outstanding": []} for i in (1, 2)]
+    notice = {"contacts": [], "facts": []}
+    monkeypatch.setattr(P, "entities_with_corrections", lambda *a: [])
+    monkeypatch.setattr(P, "build_lots", lambda ents, fn: (notice, lots))
+    monkeypatch.setattr(P, "lot_provenance", lambda ents: {})
+    monkeypatch.setattr(P, "lot_place", lambda rec: {
+        "lot_key": rec["lot_key"], "status": "resolved", "village": None,
+        "out_of_area": rec["lot_key"] in out_of_area_keys})
+    calls = []
+    monkeypatch.setattr(P, "write", lambda q, params: calls.append((q, params)) or [])
+    n, _ = P.promote_document({"filename": "n.jpg", "extraction_json": "[]"},
+                              dry_run=False)
+    return n, calls
+
+
+def test_a_lot_outside_tamil_nadu_is_never_written(monkeypatch):
+    n, calls = _promote_with_places(monkeypatch, {"n.jpg#2"})
+    assert n == 1
+    written = [p["lot_key"] for q, p in calls if q is P._WRITE_LOT]
+    assert written == ["n.jpg#1"]
+    placed = [r["lot_key"] for q, p in calls if q is P._WRITE_LOT_PLACE
+              for r in p["rows"]]
+    assert placed == ["n.jpg#1"]
+
+
+def test_an_earlier_copy_of_a_dropped_lot_is_deleted_and_recorded(monkeypatch):
+    """A lot an earlier run loaded is removed, and its key is kept on the
+    Document so apply_extractions can keep its listing hidden."""
+    _, calls = _promote_with_places(monkeypatch, {"n.jpg#2"})
+    drops = [p for q, p in calls if q is P._DROP_OUT_OF_AREA_LOTS]
+    assert drops == [{"filename": "n.jpg", "keys": ["n.jpg#2"]}]
+    q = P._DROP_OUT_OF_AREA_LOTS
+    assert "SET d.out_of_area_lot_keys" in q and "DETACH DELETE" in q
+    for shared in ("Identifier", "Borrower", "Parcel"):
+        assert shared not in q, f"{shared} is shared and must never be deleted"
+
+
+def test_a_notice_with_no_dropped_lot_clears_the_record(monkeypatch):
+    _, calls = _promote_with_places(monkeypatch, set())
+    drops = [p for q, p in calls if q is P._DROP_OUT_OF_AREA_LOTS]
+    assert drops == [{"filename": "n.jpg", "keys": []}]
+
+
 # ── headline extent: the number agent3 serves ────────────────────────────────
 
 def _extent(raw, src="total_area"):
