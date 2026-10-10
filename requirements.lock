@@ -100,7 +100,7 @@ langextract==1.6.0
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0
 langgraph-prebuilt==1.1.0
-langgraph-sdk==0.4.3
+langgraph-sdk==0.4.4
 langsmith==0.11.1
 limits==5.8.0
 logfire==4.37.0
@@ -110,7 +110,7 @@ mcp==1.28.1
 mdurl==0.1.2
 ml_collections==1.1.0
 more-itertools==11.1.0
-multidict==6.7.1
+multidict==6.9.1
 neo4j==6.2.0
 numpy==2.4.6
 openai==2.45.0
