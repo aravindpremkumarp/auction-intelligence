@@ -31,7 +31,7 @@ introduces, and `scope_honesty` in the evals is the gate for it.
 imports the chat router, so anything under that package drags FastAPI and the
 whole web stack in at import time. The tools here must be importable by evals,
 scripts and unit tests with nothing but the Neo4j driver installed — the same
-reason `api/policy.py`, `api/model_selection.py` and `api/tool_returns.py`
-already sit outside it. The agent loop, when it is built, can live under
+reason `api/policy.py` and `api/model_selection.py` already sit outside
+it. The agent loop, when it is built, can live under
 `api/chat/` and import these.
 """

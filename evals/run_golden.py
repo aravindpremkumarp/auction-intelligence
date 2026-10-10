@@ -1,10 +1,10 @@
 """
 evals/run_golden.py
 --------------------
-Live golden-question runner. Executes every catalogue case through the real
-chat agent (OpenRouter + Neo4j), applies the evaluators, prints a report, and
-exits non-zero when the tool-trajectory pass rate regresses below threshold —
-the CI gate run nightly by `.github/workflows/golden.yml`.
+Live golden-question runner. Executes every catalogue case through the
+tiered chat loop (`/chat/v2`, OpenRouter + Neo4j), applies the evaluators,
+prints a report, and exits non-zero when the tool-trajectory pass rate
+regresses below threshold — the gate `.github/workflows/golden.yml` runs.
 
 When ``LOGFIRE_TOKEN`` is set, the whole run (every agent turn, LLM call, tool
 call, and evaluation result) streams to Logfire so an eval is browsable as a
@@ -15,11 +15,6 @@ Usage (needs OpenRouter + Neo4j credentials in the environment):
     python -m evals.run_golden
 
 Env knobs:
-    EVAL_AGENT                which agent to eval: "v1" (the pydantic-ai
-                              ReAct agent, default) or "v2" (the tiered
-                              loop). Both are scored by the SAME cases and
-                              evaluators — that is what makes the two runs
-                              comparable as a migration gate.
     EVAL_MIN_TRAJECTORY_PASS  CI gate threshold (default 0.85)
     EVAL_MIN_CITATION_PASS    citation-discipline gate over the listing cases
                               (default 0 = report-only while it burns in)
@@ -27,8 +22,7 @@ Env knobs:
     EVAL_CHAT_MODEL           logical chat model to eval: "flash"/"pro"
                               (default "flash" — the free-tier model is both
                               the cheaper eval and the harder tool-routing
-                              bar; an unknown value falls back to "pro" via
-                              build_chat_run_overrides)
+                              bar)
     EVAL_DISABLE_JUDGE=1      skip the LLM-as-judge quality score
     EVAL_JUDGE_MODEL          judge model id (default: OPENROUTER_MODEL)
 """

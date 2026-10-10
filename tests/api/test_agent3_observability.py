@@ -259,8 +259,7 @@ def _fake_logfire(monkeypatch, calls):
                       ("logfire.integrations.logging", logging_mod)):
         monkeypatch.setitem(sys.modules, name, mod)
 
-    for name in ("configure", "instrument_pydantic_ai", "instrument_httpx",
-                 "instrument_fastapi"):
+    for name in ("configure", "instrument_httpx", "instrument_fastapi"):
         setattr(module, name, lambda *a, _n=name, **k: calls.append(_n))
     return _Handler
 

@@ -31,19 +31,14 @@ def rate_limited_client() -> TestClient:
 
 
 def _stub_agent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make /chat return fast without hitting a model."""
-    from api.chat.router import agent
+    """Make /chat/agent3 return fast without hitting a model."""
+    from tests.api.conftest import stub_agent3_turn
 
-    class _Res:
-        output = "ok"
-        def new_messages(self): return []
-        def all_messages(self): return []
-    async def _fake_run(*_a, **_kw): return _Res()
-    monkeypatch.setattr(agent, "run", _fake_run, raising=False)
+    stub_agent3_turn(monkeypatch)
 
 
 def test_anon_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Anonymous /chat hits the durable per-IP daily cap."""
+    """Anonymous chat hits the durable per-IP daily cap."""
     monkeypatch.setenv("RATELIMIT_DISABLED", "")
     monkeypatch.setenv("CHAT_ANON_DAILY_LIMIT", "3")
     monkeypatch.setenv("CHAT_ANON_MONTHLY_LIMIT", "100")  # high, so day is the binding cap
@@ -53,12 +48,12 @@ def test_anon_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_agent(monkeypatch)
 
     client = TestClient(app)
-    codes = [client.post("/chat", json={"message": "hi"}).status_code for _ in range(5)]
+    codes = [client.post("/chat/agent3", json={"message": "hi"}).status_code for _ in range(5)]
     assert codes[:3] == [200, 200, 200] and 429 in codes[3:], f"unexpected {codes}"
 
 
 def test_anon_chat_monthly_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Anonymous /chat hits the durable per-IP monthly cap even when the day cap
+    """Anonymous chat hits the durable per-IP monthly cap even when the day cap
     is generous — the monthly window is the nudge to log in."""
     monkeypatch.setenv("RATELIMIT_DISABLED", "")
     monkeypatch.setenv("CHAT_ANON_DAILY_LIMIT", "100")  # high, so month is the binding cap
@@ -69,7 +64,7 @@ def test_anon_chat_monthly_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     _stub_agent(monkeypatch)
 
     client = TestClient(app)
-    codes = [client.post("/chat", json={"message": "hi"}).status_code for _ in range(4)]
+    codes = [client.post("/chat/agent3", json={"message": "hi"}).status_code for _ in range(4)]
     assert codes[:2] == [200, 200] and 429 in codes[2:], f"unexpected {codes}"
 
 
@@ -78,21 +73,15 @@ def test_user_chat_daily_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RATELIMIT_DISABLED", "")
     monkeypatch.setenv("CHAT_FREE_DAILY_LIMIT", "3")
     from api.main import app
-    from api.chat.router import agent
     from tests.api.conftest import auth_header
 
-    class _Res:
-        output = "ok"
-        def new_messages(self): return []
-        def all_messages(self): return []
-    async def _fake_run(*_a, **_kw): return _Res()
-    monkeypatch.setattr(agent, "run", _fake_run, raising=False)
+    _stub_agent(monkeypatch)
 
     client = TestClient(app)
     # Unique sub so the durable counter starts clean regardless of test order.
     h = auth_header(sub="sub-quota-free", email="limit@x.com")
     codes = [
-        client.post("/chat", json={"message": "hi"}, headers=h).status_code
+        client.post("/chat/agent3", json={"message": "hi"}, headers=h).status_code
         for _ in range(5)
     ]
     assert codes[:3] == [200, 200, 200] and 429 in codes[3:], f"unexpected {codes}"
