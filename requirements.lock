@@ -59,7 +59,7 @@ fastapi==0.136.3
 fastmcp-slim==3.4.4
 filetype==1.2.0
 frozenlist==1.8.0
-genai-prices==0.0.71
+genai-prices==0.1.10
 google-api-core==2.34.0
 google-auth==2.55.2
 google-cloud-core==2.6.1
@@ -100,7 +100,7 @@ langextract==1.6.0
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0
 langgraph-prebuilt==1.1.0
-langgraph-sdk==0.4.3
+langgraph-sdk==0.4.6
 langsmith==0.11.1
 limits==5.8.0
 logfire==4.37.0
@@ -110,10 +110,10 @@ mcp==1.28.1
 mdurl==0.1.2
 ml_collections==1.1.0
 more-itertools==11.1.0
-multidict==6.7.1
+multidict==6.9.1
 neo4j==6.2.0
 numpy==2.4.6
-openai==2.45.0
+openai==3.28.0
 opentelemetry-api==1.42.1
 opentelemetry-exporter-otlp-proto-common==1.42.1
 opentelemetry-exporter-otlp-proto-http==1.42.1
@@ -140,10 +140,9 @@ pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==3.0
 pydantic==2.13.4
-pydantic-ai==2.8.0
-pydantic-ai-slim==2.8.0
-pydantic-evals==2.8.0
-pydantic-graph==2.8.0
+pydantic-ai-slim==2.55.0
+pydantic-evals==2.55.0
+pydantic-graph==2.55.0
 pydantic-settings==2.14.2
 pydantic_core==2.46.4
 Pygments==2.20.0

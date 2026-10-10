@@ -44,7 +44,7 @@ google-genai>=2.0,<3
 # ModuleNotFoundError. Both are lazy imports, so ordinary API requests never
 # pay the (pandas/absl-py) import cost.
 langextract>=1.5,<2
-openai>=2.0,<3
+openai>=3.19,<4
 
 # API + Agent layer
 # fastapi capped below 0.137: it changes how include_router mounts appear in
@@ -53,7 +53,13 @@ openai>=2.0,<3
 # are adapted.
 fastapi>=0.115,<0.137
 uvicorn[standard]>=0.30,<1.0
-pydantic-ai>=2.8,<3
+# Slim + only the extras in use (OpenAI provider, pydantic_evals for evals/).
+# >=2.52 clears the 8 pip-audit CVEs (CVE-2026-107287, 107289-107295); the full `pydantic-ai` meta-package
+# would also drag anthropic/google-genai/logfire across a major version.
+# python-multipart was only ever here via the meta-package's mcp extra, and
+# FastAPI's UploadFile (api/dossier, api/social) needs it.
+pydantic-ai-slim[openai,evals]>=2.52,<3
+python-multipart>=0.0.20,<1
 
 # Observability — Logfire/OpenTelemetry tracing of the agent + LLM + tool
 # calls. Tracing is a no-op unless LOGFIRE_TOKEN is set (see api/telemetry.py),
