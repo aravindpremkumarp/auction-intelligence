@@ -49,11 +49,11 @@ def test_property_route_matches_single_segment_only() -> None:
 
 
 def test_post_chat_still_routed_to_api_not_shell() -> None:
-    """Adding GET /chat must not shadow the chat API (POST /chat). An empty
-    body fails request validation (422) — proving it reached the API handler,
-    not the HTML fallback."""
+    """The GET /chat and /chat/{thread_id} page routes must not shadow the
+    chat API (POST /chat/agent3). An empty body fails request validation
+    (422) — proving it reached the API handler, not the HTML fallback."""
     client = TestClient(app)
-    r = client.post("/chat", json={})
+    r = client.post("/chat/agent3", json={})
     assert r.status_code == 422
     assert "text/html" not in r.headers.get("content-type", "")
 

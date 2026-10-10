@@ -273,6 +273,19 @@ carries the notice's words around the spelling (the schedule's mention before
 the borrower's address) and the closest register villages by spelling and by
 sound, with their Tamil names, each with its taluk and district spelled out.
 
+The queue can also be worked by confidence: `?sort=confidence` puts the row
+whose best suggestion scores highest first, and `score_from` / `score_to`
+keep one band of it (a row with no suggestion counts as 0). Every row then
+carries `best_score`, the top suggestion's score. Scoring the whole queue
+costs one pass over the register (about six seconds on 700 rows) and is
+remembered for ten minutes; a verdict only removes rows, so a remembered
+score is never wrong. Measured 2026-10-10 on 696 open rows: 195 score 90 or
+better (mostly plain spelling slips, "Urappakkam" for Oorapakkam), 177 sit
+in 82–90, 338 score below that or have no suggestion at all — the Chennai
+belt's localities (Srivasapuram, Nemilichery, Ullagaram, Vengaivasal) that
+the register does not hold as revenue villages. Working the first band is a
+sitting; the last needs a locality layer, not a reviewer.
+
 Twenty-one taluks hold two villages of one name (Coimbatore North has two
 "Veerapandi.", village codes 004 and 024). The name alone is refused
 everywhere — `Gazetteer.village`, both writers — so the queue offers such a

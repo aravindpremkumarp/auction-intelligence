@@ -2036,7 +2036,8 @@
   // it; "Apply my decisions" then places them. Paged, because the backlog is
   // hundreds of rows and each carries evidence.
   const vqState = { loaded: false, offset: 0, limit: 25, district: '',
-                    search: '', open: 0, rows: [], options: {} };
+                    search: '', sort: 'size', scoreFrom: '', scoreTo: '',
+                    open: 0, rows: [], options: {} };
 
   function vqMark(text, spellings) {
     // Escape first, then highlight: the notice text is data, never markup.
@@ -2121,9 +2122,14 @@
           away ? ' — in another taluk: check the notice' : ''}${
           code ? ' — the taluk has two villages of this name; this is village code ' + code : ''}`);
     }).join('');
+    // The best suggestion's score, up front, when the queue is being worked
+    // by confidence: it is the number the row was ranked or filtered by.
+    const best = v.best_score != null && vqState.sort === 'confidence'
+      ? ` <span class="pill" title="best suggestion's score">${Math.round(v.best_score)}</span>`
+      : '';
     return `<div class="vq-row" data-i="${i}">
       <div class="vq-head"><span><b>${escapeHtml(v.village)}</b> in ${escapeHtml(v.taluk)}${
-        v.district ? ', ' + escapeHtml(v.district) : ''}</span>
+        v.district ? ', ' + escapeHtml(v.district) : ''}${best}</span>
         <small style="color:var(--muted)">${counts}${also}${link}</small></div>
       ${snip}
       <div class="vq-btns">${picks || '<small class="vq-none">no close official name in this taluk</small>'}
@@ -2312,6 +2318,9 @@
     const p = new URLSearchParams({ offset: vqState.offset, limit: vqState.limit });
     if (vqState.district) p.set('district', vqState.district);
     if (vqState.search) p.set('search', vqState.search);
+    if (vqState.sort !== 'size') p.set('sort', vqState.sort);
+    if (vqState.scoreFrom !== '') p.set('score_from', vqState.scoreFrom);
+    if (vqState.scoreTo !== '') p.set('score_to', vqState.scoreTo);
     const r = await authFetch(API + '/review/resolution/villages?' + p);
     if (!r.ok) {
       body.innerHTML = `<p class="meta">error ${r.status}</p>`;
@@ -2334,6 +2343,14 @@
       <div class="vq-bar"><span><b id="vq-open">${d.open}</b> spellings open ·
           ${vqPlural(d.listings, 'listing')} · ${vqPlural(d.lots, 'lot')}</span>
         <select id="vq-district" aria-label="district">${opts}</select>
+        <select id="vq-sort" aria-label="order" title="biggest first fixes the most per click; best suggestion first clears the easy spelling slips before the hard urban names">
+          <option value="size"${vqState.sort === 'size' ? ' selected' : ''}>biggest first</option>
+          <option value="confidence"${vqState.sort === 'confidence' ? ' selected' : ''}>best suggestion first</option></select>
+        <span class="fgroup" title="keep rows whose best suggestion scores in this band (0–100); a row with no suggestion counts as 0">
+          <input id="vq-score-from" type="number" min="0" max="100" step="1" placeholder="min"
+            aria-label="minimum suggestion score" value="${escapeHtml(String(vqState.scoreFrom))}">–<input
+            id="vq-score-to" type="number" min="0" max="100" step="1" placeholder="max"
+            aria-label="maximum suggestion score" value="${escapeHtml(String(vqState.scoreTo))}"></span>
         <input id="vq-search" type="search" placeholder="find a spelling"
           aria-label="find a spelling" value="${escapeHtml(vqState.search)}"></div>
       <div id="vq-rows">${d.rows.map(vqRow).join('')
@@ -2346,6 +2363,24 @@
       vqState.district = e.target.value;
       vqReload(true);
     });
+    $('vq-sort').addEventListener('change', e => {
+      vqState.sort = e.target.value;
+      vqReload(true);
+    });
+    // A band bound applies when the typist pauses, like the search box: the
+    // whole body re-renders, so re-rendering on every keystroke would eat
+    // the second digit.
+    let st = null;
+    for (const [id, key] of [['vq-score-from', 'scoreFrom'], ['vq-score-to', 'scoreTo']]) {
+      $(id).addEventListener('input', e => {
+        clearTimeout(st);
+        st = setTimeout(() => {
+          const v = e.target.value.trim();
+          vqState[key] = v === '' ? '' : Math.min(100, Math.max(0, Number(v)));
+          vqReload(true);
+        }, 600);
+      });
+    }
     let t = null;
     $('vq-search').addEventListener('input', e => {
       clearTimeout(t);

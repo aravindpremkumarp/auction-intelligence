@@ -720,6 +720,92 @@ def test_village_queue_offers_a_close_name_from_a_sister_taluk(monkeypatch):
     assert "Adyar" not in [c["name"] for c in cands]
 
 
+def _confidence_listings():
+    """Four spellings in one taluk: an exact-ish name, a sound match, a sister
+    taluk's name, and one nothing comes close to — the last with the most
+    listings, so size and confidence disagree about who goes first."""
+    rows = [("Kottivakam", 1), ("Injambakkam", 1), ("Semmancheri", 2), ("Zzqx", 3)]
+    return [{"raw": raw, "taluk": "Sholinganallur", "district": "Chennai",
+             "auction_id": f"{raw}-{i}", "filename": None, "public_url": None}
+            for raw, n in rows for i in range(n)]
+
+
+def test_village_queue_sorts_by_best_suggestion_when_asked(monkeypatch):
+    monkeypatch.setattr(q, "run_read_query", _village_reads(_confidence_listings(), []))
+    monkeypatch.setattr(q, "_stage_cache", {})
+
+    by_size = q.village_queue()
+    assert by_size["sort"] == "size"
+    assert [r["village"] for r in by_size["rows"]][0] == "Zzqx"   # 3 listings, nothing close
+    # every row says what its best suggestion scores, or that it has none
+    for r in by_size["rows"]:
+        assert r["best_score"] == (r["candidates"][0]["score"] if r["candidates"] else None)
+
+    by_conf = q.village_queue(sort="confidence")
+    assert by_conf["sort"] == "confidence"
+    names = [r["village"] for r in by_conf["rows"]]
+    # Kottivakam (spelling) and Semmancheri (sound) both score 100; the tie
+    # goes to size, so the sister-taluk match with two listings leads
+    assert names == ["Semmancheri", "Kottivakam", "Injambakkam", "Zzqx"]
+    scores = [r["best_score"] or 0 for r in by_conf["rows"]]
+    assert scores[:2] == [100.0, 100.0] and scores == sorted(scores, reverse=True)
+    assert by_conf["rows"][-1]["best_score"] is None
+    # totals are the whole queue either way
+    assert (by_conf["open"], by_conf["matching"]) == (4, 4)
+
+    with pytest.raises(ValueError, match="sort"):
+        q.village_queue(sort="newest")
+
+
+def test_village_queue_keeps_one_band_of_suggestion_scores(monkeypatch):
+    monkeypatch.setattr(q, "run_read_query", _village_reads(_confidence_listings(), []))
+    monkeypatch.setattr(q, "_stage_cache", {})
+
+    strong = q.village_queue(score_from=90)
+    assert strong["rows"] and all(r["best_score"] >= 90 for r in strong["rows"])
+    assert "Zzqx" not in [r["village"] for r in strong["rows"]]
+    assert strong["open"] == 4 and strong["matching"] == len(strong["rows"])
+    # the band is applied after the district / search filters, on the same rows
+    assert q.village_queue(score_from=90, search="zzq")["rows"] == []
+
+    # a row with no suggestion counts as 0: in a band from 0, out of one that is not
+    none = q.village_queue(score_to=50)
+    assert [r["village"] for r in none["rows"]] == ["Zzqx"]
+    assert q.village_queue(score_from=0)["matching"] == 4
+
+
+def test_best_suggestion_scores_are_remembered_across_calls(monkeypatch):
+    """Scoring every open row costs a district's pool per row; it happens
+    once, and later pages (or a changed band) reuse it."""
+    reads = {"RevenueVillage": 0}
+    inner = _village_reads(_confidence_listings(), [])
+
+    def counting(cypher, params=None, **kw):
+        if "RevenueVillage" in cypher:
+            reads["RevenueVillage"] += 1
+        return inner(cypher, params, **kw)
+
+    monkeypatch.setattr(q, "run_read_query", counting)
+    monkeypatch.setattr(q, "_stage_cache", {})
+    q.village_queue(sort="confidence", limit=1)
+    pools_after_first = reads["RevenueVillage"]
+    from pipeline.resolution_review import village_alias_key
+    assert set(q._stage_cache["village_best"][1]) == {
+        village_alias_key(raw, "Sholinganallur") for raw in ("Kottivakam", "Injambakkam", "Semmancheri", "Zzqx")}
+    q.village_queue(sort="confidence", limit=1, offset=1)
+    q.village_queue(score_from=80)
+    # only the page's own pool is read again, never the whole queue's
+    assert reads["RevenueVillage"] - pools_after_first <= 2
+
+
+def test_village_queue_with_sort_fits_the_model(monkeypatch):
+    from api.review.router import VillageQueueOut
+    monkeypatch.setattr(q, "run_read_query", _village_reads(_confidence_listings(), []))
+    monkeypatch.setattr(q, "_stage_cache", {})
+    out = VillageQueueOut(**q.village_queue(sort="confidence", score_from=50))
+    assert out.sort == "confidence" and all(r.best_score is not None for r in out.rows)
+
+
 def test_village_snippet_prefers_the_property_schedule_to_the_borrower_address():
     text = ("Borrower: Mr. X, 5th street, Madipakkam, Chennai 600091. "
             + "filler " * 40

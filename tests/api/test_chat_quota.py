@@ -25,18 +25,12 @@ def _iso(dt: datetime) -> str:
 
 @pytest.fixture
 def chat_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """A /chat client with the quota live and a fast stubbed agent."""
+    """A /chat/agent3 client with the quota live and a fast stubbed turn."""
     monkeypatch.setenv("RATELIMIT_DISABLED", "")
     from api.main import app
-    from api.chat.router import agent
+    from tests.api.conftest import stub_agent3_turn
 
-    class _Res:
-        output = "ok"
-        def new_messages(self): return []
-        def all_messages(self): return []
-
-    async def _fake_run(*_a, **_kw): return _Res()
-    monkeypatch.setattr(agent, "run", _fake_run, raising=False)
+    stub_agent3_turn(monkeypatch)
     return TestClient(app)
 
 
@@ -78,7 +72,7 @@ def test_paid_tier_bypasses_free_cap(
     )
 
     codes = [
-        chat_client.post("/chat", json={"message": "hi"}, headers=h).status_code
+        chat_client.post("/chat/agent3", json={"message": "hi"}, headers=h).status_code
         for _ in range(5)
     ]
     assert codes == [200] * 5, f"paid user should not hit the free cap: {codes}"
@@ -101,7 +95,7 @@ def test_expired_plan_falls_back_to_free(
     me = chat_client.get("/auth/me", headers=h).json()
     assert me["tier"] == "free"
     codes = [
-        chat_client.post("/chat", json={"message": "hi"}, headers=h).status_code
+        chat_client.post("/chat/agent3", json={"message": "hi"}, headers=h).status_code
         for _ in range(4)
     ]
     assert codes[:2] == [200, 200] and 429 in codes[2:], f"unexpected {codes}"

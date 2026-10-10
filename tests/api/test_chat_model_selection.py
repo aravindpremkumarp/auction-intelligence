@@ -7,7 +7,7 @@ entitlement gate that locks free/anonymous chat to the cheap Flash model.
 Two layers:
   1. Pure logic in `api.model_selection` (resolvers + `extra_body` builder),
      tested directly — no agent, no network.
-  2. The /chat + /chat/stream wiring and GET /chat/models, tested through the
+  2. The /chat/agent3 wiring and GET /chat/models, tested through the
      app so we prove the resolved model name actually reaches the agent run
      (and that a tampered client can't escalate off the free tier).
 """
@@ -100,34 +100,16 @@ def test_build_model_settings_reasoning_toggle(monkeypatch: pytest.MonkeyPatch) 
     assert ms.build_model_settings(None)["extra_body"]["usage"] == {"include": True}
 
 
-# ── End-to-end gating (the model name that reaches agent.run) ─────────────────
+# ── End-to-end gating (the model name that reaches the agent3 loop) ────────
 @pytest.fixture
 def captured_client(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, dict]:
-    """A /chat client whose agent + override-builder are stubbed so we can
-    assert which logical model the router resolved for the caller's tier."""
-    import importlib
-
-    chat_router = importlib.import_module("api.chat.router")
+    """A /chat/agent3 client whose loop is stubbed, so we can assert which
+    logical model and effort the router resolved for the caller's tier."""
     from api.main import app
+    from tests.api.conftest import stub_agent3_turn
 
     captured: dict[str, Any] = {}
-
-    def _fake_overrides(model_name=None, reasoning_effort=None):
-        captured["model"] = model_name
-        captured["reasoning_effort"] = reasoning_effort
-        return {}  # no real model override -> the fake agent below runs
-
-    class _Res:
-        output = "ok"
-        def new_messages(self): return []
-        def all_messages(self): return []
-
-    class _Agent:
-        async def run(self, *a: Any, **kw: Any) -> Any:
-            return _Res()
-
-    monkeypatch.setattr(chat_router, "build_chat_run_overrides", _fake_overrides)
-    monkeypatch.setattr(chat_router, "agent", _Agent())
+    stub_agent3_turn(monkeypatch, captured)
     return TestClient(app), captured
 
 
@@ -137,7 +119,7 @@ def test_free_user_request_for_pro_is_downgraded(
     client, captured = captured_client
     h = auth_header(sub="sub-free-toggle", email="free-toggle@x.com")
     resp = client.post(
-        "/chat",
+        "/chat/agent3",
         json={"message": "hi", "model": "pro", "reasoning_effort": "high"},
         headers=h,
     )
@@ -146,15 +128,15 @@ def test_free_user_request_for_pro_is_downgraded(
     # reasoning effort down despite the client asking for "high".
     from api.model_selection import FREE_TIER_EFFORT
 
-    assert captured["model"] == "flash"
+    assert captured["model_name"] == "flash"
     assert captured["reasoning_effort"] == FREE_TIER_EFFORT
 
 
 def test_anonymous_chat_uses_flash(captured_client: tuple[TestClient, dict]) -> None:
     client, captured = captured_client
-    resp = client.post("/chat", json={"message": "hi", "model": "pro"})
+    resp = client.post("/chat/agent3", json={"message": "hi", "model": "pro"})
     assert resp.status_code == 200
-    assert captured["model"] == "flash"
+    assert captured["model_name"] == "flash"
 
 
 def test_free_user_off_reaches_the_model(
@@ -162,11 +144,11 @@ def test_free_user_off_reaches_the_model(
 ) -> None:
     """End-to-end regression for "toggle Off but it still thinks": a free
     user's reasoning_effort="off" must survive the tier gate all the way to
-    the agent overrides, not be swapped for the free-tier cap."""
+    the agent3 loop, not be swapped for the free-tier cap."""
     client, captured = captured_client
     h = auth_header(sub="sub-free-off", email="free-off@x.com")
     resp = client.post(
-        "/chat",
+        "/chat/agent3",
         json={"message": "hi", "reasoning_effort": "off"},
         headers=h,
     )
@@ -187,9 +169,9 @@ def test_paid_user_can_select_pro(
         datetime.now(timezone.utc) + timedelta(days=30)
     )
 
-    resp = client.post("/chat", json={"message": "hi", "model": "pro"}, headers=h)
+    resp = client.post("/chat/agent3", json={"message": "hi", "model": "pro"}, headers=h)
     assert resp.status_code == 200
-    assert captured["model"] == "pro"
+    assert captured["model_name"] == "pro"
 
 
 # ── GET /chat/models ──────────────────────────────────────────────────────────

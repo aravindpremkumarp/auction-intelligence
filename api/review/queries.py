@@ -2103,6 +2103,53 @@ def village_candidates(raw: str, pool: list[dict], n: int = 5) -> list[dict]:
 VILLAGE_ELSEWHERE_MIN = 85.0
 
 
+def _group_candidates(g: dict, pools: dict[str, list[dict]],
+                      sisters: list[str]) -> list[dict]:
+    """The suggestions one queue row shows: the notice's own taluk first
+    (``village_candidates``), then the district's other taluks when close
+    enough (``VILLAGE_ELSEWHERE_MIN``). Best first wherever it sits; the
+    notice's own taluk wins a tie. One function, so the confidence sort
+    ranks every row by the very number the row will display."""
+    elsewhere = [v for t in sisters for v in pools.get(t, [])]
+    both = (village_candidates(g["village"], pools.get(g["taluk"], []))
+            + [_candidate(*t) for t in _scored(g["village"], elsewhere)[:3]
+               if t[0] >= VILLAGE_ELSEWHERE_MIN])
+    return sorted(both, key=lambda c: (-c["score"], c["taluk"] != g["taluk"]))[:6]
+
+
+#: Best-suggestion score per open queue row, kept this long. A row's score
+#: depends only on its spelling, its taluk and the register, none of which a
+#: verdict changes — a verdict only removes the row — so a stale entry is
+#: never wrong, only unused.
+_VILLAGE_BEST_TTL_S = 600.0
+
+
+def _best_scores(groups: list[dict]) -> dict[str, float | None]:
+    """``{row key: best suggestion score}`` for every open row, None where
+    no official name comes close. Scoring a row costs a district's pool, so
+    the whole queue is scored once and remembered (``_stage_cache``); only
+    rows the cache has not seen are scored on a later call."""
+    import time as _time
+    cached = _stage_cache.get("village_best")
+    if cached and (_time.monotonic() - cached[0]) < _VILLAGE_BEST_TTL_S:
+        known = cached[1]
+    else:
+        known = {}
+    todo = [g for g in groups if g["key"] not in known]
+    if todo:
+        taluk_district, district_taluks = _district_taluks()
+        sisters = {g["taluk"]: [t for t in district_taluks.get(
+                       taluk_district.get(g["taluk"]), []) if t != g["taluk"]]
+                   for g in todo}
+        pools = _village_pool(sorted({g["taluk"] for g in todo}
+                                     | {t for ts in sisters.values() for t in ts}))
+        for g in todo:
+            cands = _group_candidates(g, pools, sisters[g["taluk"]])
+            known[g["key"]] = cands[0]["score"] if cands else None
+        _stage_cache["village_best"] = (_time.monotonic(), known)
+    return {g["key"]: known.get(g["key"]) for g in groups}
+
+
 def _village_snippet(text: str | None, spellings: list[str],
                      width: int = 150) -> str | None:
     """The notice's own words around a spelling — the evidence a reviewer
@@ -2136,14 +2183,27 @@ def _village_snippet(text: str | None, spellings: list[str],
 
 
 def village_queue(*, district: str | None = None, search: str | None = None,
-                  offset: int = 0, limit: int = 25) -> dict:
+                  offset: int = 0, limit: int = 25, sort: str = "size",
+                  score_from: float | None = None,
+                  score_to: float | None = None) -> dict:
     """One page of the village queue, with evidence and candidates on every
     row. Totals are over the whole open queue; `matching` is after the
-    district / search filter."""
+    district / search / score filters.
+
+    ``sort`` is ``"size"`` (biggest first — how much one verdict fixes) or
+    ``"confidence"`` (best suggestion first — the spelling slips a reviewer
+    settles in a glance come before the urban localities that need
+    thought). ``score_from`` / ``score_to`` keep only rows whose best
+    suggestion scores inside the band; a row with no suggestion at all
+    counts as 0, so it stays in a band that starts at 0 and drops out of
+    one that does not. Asking for either scores the whole queue once (see
+    ``_best_scores``), and every row then carries ``best_score``."""
     from collections import Counter
 
     from pipeline.place_resolution import normalize_place
 
+    if sort not in ("size", "confidence"):
+        raise ValueError(f"sort must be 'size' or 'confidence', not {sort!r}")
     groups = _village_groups(_load_decisions())
     by_district = Counter(g["district"] or "" for g in groups)
     rows = groups
@@ -2153,6 +2213,17 @@ def village_queue(*, district: str | None = None, search: str | None = None,
         needle = normalize_place(search)
         rows = [g for g in rows
                 if any(needle in normalize_place(s) for s in g["spellings"])]
+    banded = score_from is not None or score_to is not None
+    if sort == "confidence" or banded:
+        best = _best_scores(groups)
+        rows = [{**g, "best_score": best.get(g["key"])} for g in rows]
+        if banded:
+            lo, hi = score_from or 0.0, 100.0 if score_to is None else score_to
+            rows = [g for g in rows if lo <= (g["best_score"] or 0.0) <= hi]
+        if sort == "confidence":
+            rows.sort(key=lambda g: (-(g["best_score"] or 0.0),
+                                     -(g["listings"] + g["lots"]),
+                                     g["village"].lower(), g["taluk"]))
     page = [dict(g) for g in rows[offset:offset + limit]]
 
     # Candidates come from the notice's taluk and, when close enough, from
@@ -2169,13 +2240,8 @@ def village_queue(*, district: str | None = None, search: str | None = None,
         "RETURN d.filename AS filename, d.markdown AS text",
         {"files": files}, max_rows=len(files) or 1, timeout=30.0)} if files else {}
     for g in page:
-        elsewhere = [v for t in sisters[g["taluk"]] for v in pools.get(t, [])]
-        both = (village_candidates(g["village"], pools.get(g["taluk"], []))
-                + [_candidate(*t) for t in _scored(g["village"], elsewhere)[:3]
-                   if t[0] >= VILLAGE_ELSEWHERE_MIN])
-        # Best first wherever it sits; the notice's own taluk wins a tie.
-        g["candidates"] = sorted(both, key=lambda c: (-c["score"],
-                                                      c["taluk"] != g["taluk"]))[:6]
+        g["candidates"] = _group_candidates(g, pools, sisters[g["taluk"]])
+        g.setdefault("best_score", g["candidates"][0]["score"] if g["candidates"] else None)
         g["snippet"] = g["snippet_file"] = None
         for e in g["examples"][:2]:
             snip = _village_snippet(texts.get(e["filename"]), g["spellings"])
@@ -2188,7 +2254,7 @@ def village_queue(*, district: str | None = None, search: str | None = None,
         "listings": sum(g["listings"] for g in groups),
         "lots": sum(g["lots"] for g in groups),
         "matching": len(rows),
-        "offset": offset, "limit": limit,
+        "offset": offset, "limit": limit, "sort": sort,
         "districts": [{"name": d, "open": n}
                       for d, n in sorted(by_district.items(), key=lambda kv: (-kv[1], kv[0]))
                       if d],

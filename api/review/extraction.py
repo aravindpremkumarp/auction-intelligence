@@ -362,7 +362,7 @@ EXTRACTION_FAILURES: dict[str, dict] = {
     "lot-order":     {"codes": ("lot_order_off",)},
     "auction-date":  {"codes": ("lot_missing_auction_date",)},
     "description":   {"codes": ("missing_full_description", "full_description_incomplete")},
-    "wrong-lot":     {"codes": ("detail_wrong_lot",)},
+    "wrong-lot":     {"codes": ("detail_wrong_lot", "lot_pairing_off")},
     "property-type": {"codes": ("missing_property_type",)},
     "location":      {"codes": ("missing_location", "lot_missing_location")},
     # Read but not placed: the lot HAS a location, it just matched nothing

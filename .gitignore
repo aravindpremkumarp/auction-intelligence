@@ -32,6 +32,8 @@ pipeline/cache/
 pipeline/output/
 output/
 screenshots/
+tn_villages.csv
+captcha.png
 *.log
 ~$*                   # Windows Office temp files
 

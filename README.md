@@ -1,129 +1,174 @@
-# Bank Auction Intelligence
+# Bank Auction Intelligence (AuctionScope)
 
 **Production:** <https://www.auctionscope.in>
 
-An AI intelligence platform for Indian **SARFAESI** bank-auction property. It
-scrapes public auction listings, builds a **Neo4j knowledge graph** of Tamil
-Nadu auctions (~2,200 enriched; ~600 live at any time — the live count is at
-`GET /stats`), enriches
-each listing with OCR + vision-LLM extraction of the source sale notices, and
-serves a **PydanticAI agent** behind a chat UI that lets you find, compare,
-and analyze investment opportunities in natural language (saving/tracking
-lives in the app UI).
+An AI **search and evaluation layer** for Tamil Nadu bank-auction property
+(SARFAESI, DRT, liquidation). It pulls listings from three auction portals,
+reads the sale notice behind each listing with OCR + grounded LLM extraction,
+resolves lenders and places onto canonical identities, and serves a chat agent
+that answers from a **Neo4j knowledge graph** rather than from memory. It is
+not a bidding platform and it does not do legal or title diligence: you find
+and size up a property here, then bid on the official portal.
 
 ```
-scrape → filter TN → load Neo4j → OCR + vision-LLM extract → classify notices →
-verify/enrich → apply LangExtract descriptions → serve agent + web UI →
-human feedback + review loop
+harvest 3 portals → load graph → OCR notices → classify → extract (LangExtract)
+   → human review gates → promote :Lot / apply to listings → resolve entities
+   → link re-auctions + build the spine → serve agent3 + web UI → feedback
 ```
+
+Live corpus size is published at `GET /stats`. On 2026-09-12 the graph held
+2,964 listings, 1,625 extracted notices and 3,393 lots (`docs/SCHEMA.md`).
 
 ---
 
 ## What it does
 
-- **Conversational search** over the graph — "residential auctions in Chennai
-  under 30 lakhs", "what's the price range in Kanchipuram?", "which borrowers
-  have more than 3 properties?". Every answer is grounded in a tool call; the
-  agent never invents prices, counts, or IDs.
-- **Qualitative text search** over notice content — boundaries,
-  neighbourhood, legal caveats, condition — across two Lucene fulltext
-  indexes (lot schedule text, property description), BM25-ranked and merged.
-- **Paste-a-listing matching** — drop a WhatsApp forward or broker blurb and the
-  agent anchors it to the right auction by reserve price + date.
-- **Web-search enrichment** — the agent can answer questions the sale notice
-  can't: locality water / groundwater, waterlogging & flood signals, existing +
-  upcoming govt/private projects, transport (metro/bus/connectivity), nearby
-  schools/hospitals, approximate location, and market price vs. the reserve —
-  via `internet_search`, cited. (Web-researched and approximate, not legal advice.)
-- **Deep-research mode** (login-gated) — a structured, cited research report on
-  one auction: market comparables, location intelligence, re-auction price
-  history, and notice red flags. (Seven further specs — scan/shortlist/evaluate/
-  track/refresh/compare/report — are archived, not live.)
-- **Accounts** — Supabase auth, a saved-property **watchlist**, and persisted
-  **conversations** (including per-property chats).
-- **Re-auction awareness** — every result row carries `is_reauction`,
-  `reauction_count`, and `previous_reserve_price` so price-drop questions are
-  answered from the rows directly.
-- **Enrichment review surface** — an admin UI with a gate per pipeline stage:
-  confirm each notice's type and lot count (classification), grade OCR/markdown
-  quality, and check LangExtract's output — where a lot-count mismatch against
-  the reviewer's count is flagged. Plus per-property description verify/edit,
-  block-level annotation, and region re-extract.
-- **Feedback loop** — thumbs up/down on any reply flows into Neo4j and is
-  auto-synced into the repo for triage.
+- **Conversational search** — "residential plots in Coimbatore over 2,000 sqft
+  where the bank has physical possession", "which of these had a failed
+  earlier auction?". Every number comes from a tool call; the agent cites
+  `auction_id`s and says what the notice *doesn't* state.
+- **Reads the notice, not just the portal row** — extent, survey/patta/door
+  numbers, boundaries, possession, encumbrance, secured debt, EMD account,
+  authorised officer. Each value is scope-tagged `lot` (this property's own
+  fact) or `notice` (shared across a multi-lot notice).
+- **Free-text search over notice wording** — "borewell", "disputed pathway",
+  "north facing corner plot" — via two Lucene fulltext indexes.
+- **Identifier lookup** — paste a survey, patta, door, plot or CERSAI number.
+- **Re-auction awareness** — price history, attempt number and the previous
+  reserve on every row; `reauction_history` for the full chain.
+- **Price benchmark** — ₹/sqft against comparable single-lot notices
+  (refuses when the notice can't support it, and says why).
+- **Web-search enrichment** — locality, connectivity, flood/water signals,
+  schools/hospitals, via Tavily; cited and marked approximate.
+- **Three portals, one auction** — eauctionsindia, BAANKNET and
+  bankeauctions.com copies are bridged (`SAME_LISTING_AS`) and merged into one
+  `:AuctionEvent` with per-field provenance and a `core_complete` 0–9 score.
+- **Accounts & Pro** — Supabase auth, watchlist, saved conversations,
+  deadline alerts, and a one-time ₹499 / 30-day Pro unlock (Razorpay) that
+  opens the full notice detail and a larger chat quota.
+- **Enrichment review surface** — admin UI with a human gate per pipeline
+  stage (classification, OCR markdown, extraction), an entity-resolution
+  queue, a village-spelling queue, a pipeline funnel, and a seeded random
+  **spot-check audit** that measures extraction precision.
+- **Programmatic SEO** — static city / type landing pages, prerendered
+  property pages with JSON-LD and per-property OG cards, long-form guides,
+  comparison pages, `llms.txt`.
+- **Content-ops agents** — a Poster drafts social posts from live data and a
+  Reporter writes the weekly metrics report. Both stage only; a human
+  publishes.
 
 ---
 
 ## Architecture
 
 ```
-                Vercel (static web/)                Neo4j Aura
-              ┌────────────────────┐            ┌──────────────┐
-  Browser ───▶│ index.html  app.js │            │  knowledge   │
-              │ styles.css  auth.js │            │    graph     │
-              └─────────┬──────────┘            └──────▲───────┘
-                        │  fetch (API_BASE)            │ Bolt / HTTPS
-                        ▼                              │
-              ┌────────────────────────────────────────┴──────────┐
-              │            Render — FastAPI (api/main.py)          │
-              │  routers: chat · properties · feedback · health    │
-              │  auth-gated: auth · watchlist · conversations ·    │
-              │              review                                │
-              │  PydanticAI agent ─▶ OpenRouter (DeepSeek V4 Pro) │
-              │  cypher tools · semantic search · web search       │
-              └───┬───────────────┬───────────────┬───────────────┘
-                  │               │               │
-            Supabase (JWT)   Cloudflare R2    OpenRouter / Google /
-            auth + JWKS      sale notices     Tavily  + Logfire (OTel)
+                Vercel (static web/)                        Neo4j Aura
+              ┌──────────────────────────┐              ┌────────────────┐
+  Browser ───▶│ index.html  app.js       │              │ knowledge graph│
+              │ styles.css  auth.js      │              │ + chat         │
+              │ review/admin/social/     │              │   transcripts  │
+              │ spotcheck · SEO pages    │              └───────▲────────┘
+              └────────────┬─────────────┘                      │ Bolt / HTTPS
+                           │ fetch (API_BASE)                   │
+                           ▼                                    │
+              ┌─────────────────────────────────────────────────┴──────────┐
+              │              Render — FastAPI (api/main.py)                 │
+              │  public: health · properties · chat/agent3 · feedback ·     │
+              │          alerts · chat/v2 · chat/deep (admin)               │
+              │  auth-gated: auth · billing · watchlist · conversations ·   │
+              │              review · review/extraction · review/spotcheck ·│
+              │              social · dossiers (flag)                       │
+              │  agent3: LangChain create_agent + LangGraph, 7 tools,       │
+              │          on-demand skills, answer gate, Neo4j checkpointer  │
+              ├────────────────────────────────────────────────────────────┤
+              │  Render cron `auction-extract` — pipeline.load_extractions │
+              │  every 6 h (LangExtract over pending notices)              │
+              └───┬──────────────┬──────────────┬──────────────┬───────────┘
+                  │              │              │              │
+            Supabase (JWT)  Cloudflare R2   OpenRouter /   Razorpay ·
+            auth + JWKS     notices, photos Tavily · Google  Logfire (OTel)
+                            OG cards, reels (LangExtract)
 ```
 
 - **Backend** — FastAPI. `api/main.py` is a thin composition root (CORS,
-  rate-limit, exception handlers, static serving); endpoint logic lives in
-  focused routers. The agent (`api/agent.py`) is a PydanticAI agent wired to
-  OpenRouter, with its schema/tool-routing rules loaded from `modes/_shared.md`.
+  security headers, rate limit, exception handlers, static routes); logic
+  lives in focused routers. Chat is `api/agent3/`, for both the main chat
+  and the property page's "ask about this property" box. Two earlier loops
+  (`api/chat/v2` tiered, `api/chat/deep` Deep Agents) stay mounted for evals
+  and the admin `/lab` comparison surface. The original pydantic-ai chat is
+  removed (#532).
 - **Frontend** — single-page app, **no build step**: vanilla JS + hand-written
-  CSS, split into `web/index.html` (markup), `web/styles.css`, `web/app.js`
-  (behaviour), `web/auth.js` (Supabase auth), `web/billing.js` (Razorpay
-  checkout), and `web/dossiers.js` (dossier UI, dark by default). Plus
-  `admin.html` and `review.html` for the admin/review surfaces.
-- **Auth** — Supabase handles signup/login/reset on the client; the backend
-  verifies each access token against Supabase JWKS and mirrors the user as a
-  Neo4j `:User` node. Auth-gated routers are skipped entirely when
-  `AUTH_ENABLED=false`, so the app boots for offline dev without Supabase.
-- **Data** — Neo4j Aura (hosted graph). Sale-notice PDFs/images live in a public
-  **Cloudflare R2** bucket and are linked straight from the UI.
-- **Local-only tooling** — Selenium scraping and the OCR/MinerU enrichment
-  pipeline run on a workstation, not in production.
+  CSS (`web/index.html`, `app.js`, `styles.css`, `auth.js`, `billing.js`,
+  `dossiers.js`, `lab.js`, `consent.js`). Separate pages for admin
+  (`admin.html`), review (`review.html` + the iframed
+  `review_extraction.html`), spot-check (`spotcheck.html`) and social
+  review (`social.html`). Generated SEO pages live under `web/property/`,
+  `web/bank-auctions/`, `web/guides/`, `web/compare/`.
+- **Auth** — Supabase on the client; the backend verifies each access token
+  against Supabase JWKS and mirrors the user as a Neo4j `:User`. Auth-gated
+  routers are skipped when `AUTH_ENABLED=false`, so the app boots offline.
+- **Paywall** — `api/entitlements.py` redacts `/auction/{id}` server-side to
+  an allowlist of free fields; locked panels return counts, never values.
+- **Data** — Neo4j Aura. Sale notices, portal photos, OG cards and rendered
+  reels live in a public **Cloudflare R2** bucket; private dossier uploads in
+  a separate private bucket.
+- **Local-only tooling** — the Selenium scraper, portal harvesters, OCR runs,
+  graph loaders and most backfill scripts run on a workstation. Extraction
+  also runs on a Render cron.
 
 ---
 
 ## Repository layout
 
 ```
-api/          FastAPI composition root (main.py) + routers:
-              chat/ properties/ feedback/ health/ — always on;
-              auth/ watchlist/ conversations/ review/ — auth-gated.
-              agent.py (PydanticAI agent), neo4j_client.py, telemetry.py,
-              observability.py, tools/ (Cypher + web search).
-pipeline/     Enrichment pipeline: OCR (Datalab/MinerU), notice
-              classification, grounded LangExtract extraction, :Lot/:Parcel
-              promotion, apply-to-listing, R2 storage helpers.
-scrapers/     Selenium scrapers for eauctionsindia.com (local only).
-scripts/      Data-prep, migration, backfill, and one-off maintenance scripts.
-scoring/      Ten-dimensional investment scoring (auction_scorer.py) — offline
-              only; not wired into the live API.
-tracking/     Eight-state investment-pipeline tracker — offline only.
-modes/        Agent prompt files — _shared.md (schema + rules) + per-mode specs.
-evals/        pydantic-evals golden-question harness.
-web/          Single-page frontend (index/styles/app/auth) + admin + review UIs.
-redesign/     Standalone "Auctionscope" clean-UI prototype (vanilla HTML/CSS/JS).
-config/       Full dev requirements, domain ontology + graph model, overview.
-feedback/     Auto-synced snapshots of the live /feedback feed.
-docs/         Design specs, plans, and the June 2026 code-review response.
-tests/        pytest suites — tests/api (CI) + tests/pipeline + scraper probes.
+api/            FastAPI composition root + routers
+  agent3/       THE chat agent: tools, skills/, instructions.md, loop, gates,
+                manifest (turn-owned property cards), chatlog, ownership
+  chat/         gating (quota + model tiers), sse.py (stream framing),
+                panel sync, /modes · /suggestions · /chat/models router,
+                v2/ tiered loop, deep/ Deep Agents loop — admin / eval only
+  review/       enrichment review: queues, extraction.py, spotcheck.py,
+                blocks (annotator), grounding, markdown_match
+  properties/ health/ feedback/ alerts/ auth/ billing/ watchlist/
+  conversations/ social/ dossier/
+  entitlements.py  places.py  canonical.py  policy.py  checkpointer.py
+  neo4j_client.py  telemetry.py  observability.py  tools/ (Cypher + web
+                tools the v2 and deep loops call)
+pipeline/       Notice enrichment: OCR clients (datalab, mineru), notice
+                twins + stitching, classify_notice, LangExtract
+                (langextract_examples, load_extractions, extract_entry),
+                gap_fill / absence / widen_descriptions / keep_better,
+                validators + key_entities, promote_extractions,
+                apply_extractions, spotcheck, place/entity resolution,
+                reader/ (reader v2, parked), lookups/ (gazetteers)
+sources/        Portal adapters (eauctionsindia, baanknet, bankeauctions),
+                normalize, match (cross-portal bridge), merge (spine)
+scrapers/       Selenium scraper for eauctionsindia (local only)
+scripts/        Loaders, R2 upload, resolvers, SEO generators, OG cards,
+                backfills, audits, run_weekly_pipeline.py
+modes/          _shared.md (graph brief the v2 and deep loops read),
+                deep-research.md, _archive/
+evals/          Golden questions, conversations, agent3 tool catalogue,
+                LangExtract gold set + eval, ContextGem A/B, gold sprint
+marketing/      dashboard.html (marketing system of record), templates/
+                (cards + HyperFrames reels), render_social.py, render_reel.py,
+                research/ (Instagram/X pulls, local only), outputs/ (staged)
+marketing_agents/  poster.py (Agent A), reporter.py (Agent B)
+web/            SPA + admin/review/social/spotcheck pages + generated SEO pages
+config/         Full dev requirements, domain ontology, graph model
+docs/           SCHEMA.md, design docs, audits, marketing playbooks,
+                superpowers/ specs + plans
+tests/          api/ (CI gate), pipeline/, scripts/, sources/, e2e/,
+                marketing_agents/, scraper probes
+experiments/    Spikes kept for their findings (deepagent-chat, bank ER)
+inspiration/    Research notes on adjacent products and land-record sources
+clones/ redesign/ brand/ walkthrough/   UI prototypes and brand assets
+.agents/ .claude/   Vendored agent skills, hooks and settings
 ```
 
-A deeper, file-by-file tour lives in [`config/CODEBASE_OVERVIEW.txt`](config/CODEBASE_OVERVIEW.txt).
+`docs/SCHEMA.md` is the graph reference (every extracted class and where it
+lands, geography, provenance, sources and the spine). `TODOS.md` tracks open
+items by priority.
 
 ---
 
@@ -134,22 +179,27 @@ python -m venv .venv
 source .venv/bin/activate         # macOS/Linux
 # .venv\Scripts\activate          # Windows
 
-pip install -r config/requirements.txt   # full dev set (scraping + OCR + reports)
+pip install -r config/requirements.txt   # full dev set (scraping + OCR + evals)
 cp .env.example .env                      # then fill in real values
 
 uvicorn api.main:app --reload
 ```
 
-Open <http://localhost:8000>. The SPA resolves `API_BASE` to empty on
-`localhost` (so it calls the same origin) and to the hosted Render URL otherwise.
+Open <http://localhost:8000>. The SPA resolves `API_BASE` to the same origin on
+`localhost` and to the hosted Render URL otherwise. API docs (`/docs`) are on
+only when `APP_ENV` is `dev` or `test`.
 
-Handy toggles for local/offline work:
+Handy toggles:
 
-- `AUTH_ENABLED=false` — boot without Supabase (skips auth/watchlist/
-  conversations/review routers).
-- `RATELIMIT_DISABLED=1` — drop the anonymous-chat throttle.
+- `AUTH_ENABLED=false` — boot without Supabase (skips auth/billing/
+  watchlist/conversations/review/social routers).
+- `RATELIMIT_DISABLED=1` — drop the anonymous-chat throttle and quota.
 - `NEO4J_HTTP_API=1` — route Neo4j over Aura's HTTPS Query API when Bolt
-  (port 7687) is blocked by an egress proxy.
+  (port 7687) is blocked by an egress proxy. Every script accepts it.
+- `?loop=tiered` / `?loop=deep` on the app — switch an admin's chat loop for
+  comparison (sticks in localStorage); `/lab` shows the inspector.
+- `DOSSIERS_ENABLED=true` + `?dossiers=1` — preview the dark-shipped dossier
+  feature.
 
 ---
 
@@ -159,212 +209,278 @@ Copy `.env.example` → `.env`. Never commit the filled-in file. Key groups:
 
 | Group | Vars | Notes |
 | --- | --- | --- |
-| **LLM** | `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_API_KEY`, `OPENROUTER_MODEL`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | OpenRouter runs the agent (**DeepSeek V4 Pro**, Flash on the free tier) and OCR extraction (`gemini-2.5-flash`); Google key powers LangExtract's Gemini backend. `OPENROUTER_CHAT_API_KEY` caps chat spend apart from the pipeline. |
-| **Graph** | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | Neo4j Aura. |
-| **Auth** | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_ENABLED`, `ADMIN_BOOTSTRAP_EMAIL` | Anon key is browser-safe; service-role key is server-only (admin bootstrap script). |
-| **Storage** | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | Public Cloudflare R2 bucket serving sale notices. |
-| **Observability** | `LOGFIRE_TOKEN`, `LOGFIRE_ENVIRONMENT`, `OTEL_EXPORTER_OTLP_*`, `AGENT3_CHATLOG`, `AGENT3_CHATLOG_MAX_CHARS` | Optional OpenTelemetry tracing; unset = no-op. `AGENT3_CHATLOG=0` stops agent3 chat transcripts being exported (default on, 4000 chars per field). |
-| **Eval** | `EVAL_JUDGE_MODEL` | LLM-as-judge model for the golden eval. |
-| **App** | `APP_BASE_URL`, `APP_ENV`, `FEEDBACK_RESOLVE_TOKEN`, `RATELIMIT_DISABLED` | CORS origins, env mode, feedback-resolve guard. |
-| **Scraping** | `FINDAUCTION_EMAIL`, `FINDAUCTION_PASSWORD` | Local-only; not needed in production. |
+| **LLM** | `OPENROUTER_API_KEY`, `OPENROUTER_CHAT_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_MODEL_CHAT`, `OPENROUTER_MODEL_CHAT_FLASH`, `OPENROUTER_CHAT_REASONING_EFFORT`, `FREE_TIER_REASONING_EFFORT`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | OpenRouter runs chat (DeepSeek V4 **Pro** for paid, **Flash** for free/anon) and the batch pipeline; `OPENROUTER_CHAT_API_KEY` caps chat spend separately. Google key backs LangExtract's Gemini provider. |
+| **Graph** | `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`, `NEO4J_HTTP_API` | Neo4j Aura. |
+| **Auth** | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_ENABLED`, `ADMIN_BOOTSTRAP_EMAIL` | Anon key is browser-safe; service-role key is server-only (`scripts/create_admin.py`). |
+| **Quota** | `CHAT_ANON_DAILY_LIMIT`, `CHAT_ANON_MONTHLY_LIMIT`, `CHAT_FREE_DAILY_LIMIT`, `CHAT_FREE_MONTHLY_LIMIT`, `CHAT_PAID_DAILY_LIMIT`, `QUOTA_IP_SALT`, `RATELIMIT_DISABLED` | Durable day + month windows, per account or hashed IP. |
+| **Billing** | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PLAN_AMOUNT`, `RAZORPAY_PLAN_CURRENCY`, `RAZORPAY_PLAN_DAYS`, `RAZORPAY_WEBHOOK_TTL_DAYS` | Pro unlock. The webhook is the sole activation path. |
+| **Storage** | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`, `R2_PRIVATE_BUCKET` | Public bucket for notices/photos/cards; private bucket for dossiers. |
+| **OCR / extraction** | `DATALAB_API_KEY`, `MINERU_API_KEY`, `DESCRIPTION_OCR_ENGINE`, `DATALAB_MODE_SINGLE`, `DATALAB_MODE_MULTI`, `DATALAB_PIPELINE_CONCURRENCY`, `EXTRACT_READER`, `LANGEXTRACT_PROVIDER`, `PIPELINE_LLM_TOKEN_BUDGET` | Datalab is the default bulk OCR engine (`fast` for single-lot notices, `accurate` for multi). `EXTRACT_READER` is `langextract` (prod), `v2` or `shadow`. |
+| **Dossiers** | `DOSSIERS_ENABLED`, `OPENROUTER_MODEL_DOC_CLASSIFY`, `DOSSIER_MAX_FILE_MB`, `DOSSIER_MAX_PAGES` | Ships dark. |
+| **Observability** | `LOGFIRE_TOKEN`, `LOGFIRE_ENVIRONMENT`, `OTEL_EXPORTER_OTLP_*`, `AGENT3_CHATLOG`, `AGENT3_CHATLOG_MAX_CHARS`, `OBS_SLOW_QUERY_MS`, `OBS_SLOW_AGENT_MS` | Optional tracing; unset = structured logs only. |
+| **App** | `APP_BASE_URL`, `APP_ENV`, `FEEDBACK_RESOLVE_TOKEN` | CORS origins, env mode, feedback-resolve guard. |
+| **Eval** | `EVAL_JUDGE_MODEL`, `EVAL_MIN_CONVO_PASS` | LLM-as-judge model; conversation pass gate. |
+| **Marketing research** | `INSTAGRAM_*`, `X_BEARER_TOKEN`, `RESEARCH_OUT_DIR` | Local only. |
 
 ---
 
-## The agent
+## The chat agent (agent3)
 
-`api/agent.py` builds the PydanticAI agent. Its system prompt is a short role
-statement plus the whole of `modes/_shared.md` (graph schema, enum lists,
-tool-routing rules, a Cypher cheat-sheet). Four dynamic instructions augment each
-turn: the rolling **active search scope** carried across turns, the
-**matches-panel selection**, a **mode overlay** when the client requests one, and
-the **live graph size**. The agent runs **DeepSeek V4 Pro** by default (a Flash
-variant on the free tier).
+`api/agent3/` is the chat for every visitor (default since 2026-09-19;
+`docs/auction-deep-agent-2026-08.md`). It runs on LangChain's `create_agent`
+over LangGraph, with the transcript checkpointed in Neo4j under a `thread_id`
+(`api/checkpointer.py`), so the client round-trips neither history nor a
+scope object. The system prompt is `api/agent3/instructions.md`, kept
+byte-identical across turns for prompt caching; per-turn material (loaded
+skills, the matches panel) rides on the human message.
 
-**Tools** (read-only against the graph + web):
+**Tools** (six graph tools + web):
 
 | Tool | Purpose |
 | --- | --- |
-| `search_auctions` | Filter by price / EMD / city / area / type / category / bank / borrower / platform / date; `deadline_within_days` for upcoming deadlines; supports aggregates (min/max/avg/median/p25/p75), `group_by` distributions, and true `total_count`. |
-| `semantic_search` | Lucene fulltext across lot schedule text + property description, BM25-ranked and merged in one call. |
-| `get_auction_detail` | Full records for one or a list of `auction_id`s (up to 10 per call), including re-auction `price_history`. |
-| `describe_schema` | Live graph introspection (labels, rels, enums, ranges); 1-hour cache. |
-| `run_cypher` | Read-only Cypher escape hatch — write clauses rejected, 10 s / 500-row caps. |
-| `internet_search` | Tavily web search for off-graph context — locality water/flood signals, govt/private projects, connectivity, schools/hospitals, market context. Cited, approximate. |
-| `query_user_dossier` | (dossiers build only) Q&A over a signed-in user's own uploaded documents for one property. |
+| `find_properties` | Any find / count / break-down. Filters reach into the notice (extent, possession, road width, encumbrance, identifiers, re-auction attempt). Returns `refine` and `relax` suggestions in the same call. |
+| `get_property` | Full detail for one listing: schedule, extent, boundaries, possession, loan, EMD account, parties, and `gaps` (what the notice omits). |
+| `search_notices` | AND-joined Lucene search over lot schedule text (`lot_description_ft`) and the portal blurb (`property_text_idx`). |
+| `find_by_identifier` | Survey, patta, door, plot or CERSAI number. |
+| `benchmark_price` | ₹/sqft against comparable single-lot notices; refuses with a reason otherwise. |
+| `reauction_history` | The re-auction chain, attempt numbers and previous reserves. |
+| `internet_search` | Tavily, for off-graph context only; sources become citation chips. |
 
-**Modes** (`modes/*.md`): `deep-research` (login-gated) plus the default
-`ask`. Seven further specs — `scan`, `shortlist`, `evaluate`, `track`,
-`refresh`, `compare`, `report` — are parked in
-[`modes/_archive/`](modes/_archive/) (not wired into the UI; see that folder's
-README to re-activate).
+**Skills** (`api/agent3/skills/`, loaded by trigger phrase, no tool call):
+`bidding`, `diligence`, `extent`, `identifiers`,
+`possession-and-encumbrance`, `pricing`, `reauction`.
 
-The graph is modelled around `AuctionProperty`, with `Bank`/`Branch`,
-`City`/`Area`/`State`, `AssetCategory`, `PropertyType`, `Borrower`, and
-`AuctionType` reference nodes, plus enrichment nodes (`Score`,
-`InvestmentTracker`, `Feedback`, `User`, `Document`). See
-[`config/domain_ontology.yaml`](config/domain_ontology.yaml) for the full schema.
+**Gates.** The answer gate re-reads a draft against rules checked in code
+(no invented numbers, scope honesty, no valuations) and makes the model
+rewrite, at most one repair call; `GateOut.repairs` counts how often. An
+intent gate refuses bulk personal-data harvesting before any token is
+spent. A turn is capped at six model calls.
+
+**Endpoints.** `POST /chat/agent3`, `POST /chat/agent3/stream` (SSE:
+status / delta / manifest / final), `GET /chat/agent3/{thread}/history`,
+`GET /chat/agent3/{thread}/manifests` (turn-owned property cards),
+`DELETE /chat/agent3/{thread}`. Threads carry an owner so one visitor cannot
+read another's conversation.
+
+**Other loops (admin / eval only).**
+
+| Loop | Endpoint | Memory | Status |
+| --- | --- | --- | --- |
+| Tiered plan → execute → synthesize (`api/chat/v2`) | `POST /chat/v2` | `scope` summary | Admin only, `/lab` |
+| Deep Agents ReAct (`api/chat/deep`) | `POST /chat/deep` | Neo4j transcript | Admin only, `/lab` |
+
+The first chat, a pydantic-ai agent on `POST /chat`, was removed in #532
+along with the pydantic-ai dependency. The A/B that chose agent3 is in
+`docs/chat-loop-ab-2026-08.md` and
+`docs/auction-deep-agent-2026-08.md` §10 (15.8 s median turn vs 25 s tiered
+and 149 s deep). The UI still offers an **Ask / Deep research** picker; on
+agent3 a deep pass is the `diligence` skill.
+
+**Tiers & quotas** (`api/chat/gating.py`, `api/model_selection.py`):
+
+| Tier | Chats/day | Chats/month | Model | Reasoning effort |
+| --- | --- | --- | --- | --- |
+| Anonymous | 10 | 30 | Flash | low (server-capped) |
+| Free (signed-in) | 10 | 300 | Flash | low (server-capped) |
+| Pro | 100 | unlimited | Pro (or Flash) | user-selectable up to xhigh |
+
+Every tier sees the same graph through chat; Pro buys turns and the full
+property page. Pro is a one-time **₹499**, **30-day** unlock via Razorpay;
+the HMAC-verified, idempotent webhook is the only thing that activates it.
 
 ---
 
-## Accounts, tiers & billing
+## Pipelines
 
-- **Auth** — Supabase (client signup/login/reset; backend verifies each JWT via
-  JWKS and mirrors the user as a Neo4j `:User`).
-- **Tiers & quotas** (`api/model_selection.py`, `api/chat/router.py`):
+There are five, each run on its own cadence. The weekly data run and the
+notice enrichment run on a workstation; extraction, entity resolution and
+the audits also run unattended.
 
-  | Tier | Chats/day | Chats/month | Model | Reasoning effort | Deep-research |
-  | --- | --- | --- | --- | --- | --- |
-  | Anonymous | 10 | 30 | Flash | low | — |
-  | Free (signed-in) | 20 | 100 | Flash | low | ✓ (login-gated) |
-  | Pro | 1,000 | unlimited | **Pro** | high / xhigh | ✓ |
+### 1. Weekly data pipeline (workstation)
 
-- **Billing** — Razorpay. Pro is a one-time **₹499**, **30-day** unlock
-  (`RAZORPAY_PLAN_AMOUNT` / `RAZORPAY_PLAN_DAYS`); the **webhook is the sole
-  activation path** (HMAC-verified, idempotent).
-- **Deadline alerts** — `GET|POST /alerts`: 7-day-window reminders for
-  saved/watchlisted properties, surfaced as a bell badge in the UI.
-- **Dossier** (ships dark; `DOSSIERS_ENABLED=false`) — a private per-property
-  **document locker**: a signed-in user uploads *their own* collected documents,
-  which the app OCRs and auto-classifies across a 9-category taxonomy with a
-  completeness tracker. It organises the user's documents; it is **not** automated
-  legal/title diligence.
-
----
-
-## Data & enrichment pipeline
-
-The pipeline (`pipeline/`, run locally) turns raw scraped listings into enriched
-graph data. Orchestrate it with `python -m pipeline.run_pipeline` (flags:
-`--pilot`, `--limit N`, `--skip-classify` (skips the notice-classification
-stage)).
-
-**One command to run it all (weekly batch job):** `C:\Python314\python.exe
-scripts\run_weekly_pipeline.py` chains steps 1-7 below end-to-end, with
-logging to `logs\pipeline_run_<timestamp>.log`, pre-flight env-var checks, and
-stop-on-first-failure behavior. Scraping (steps 1-2) stays local and
-semi-manual — a visible Chrome window opens so a human can solve Cloudflare's
-CAPTCHA if it appears; the run pauses and waits, then continues automatically
-once solved. Pass `--skip-scrape` to start from step 3 using whatever is
-already in `data/live_eauction_data.jsonl` (e.g. if you already scraped
-manually earlier in the week). `scripts\run_weekly_pipeline.bat` wraps this
-for Windows Task Scheduler.
-
-The manual step list below is what `run_weekly_pipeline.py` does internally —
-useful as a reference, or for running any single stage by hand:
+`scripts/run_weekly_pipeline.py` chains the steps below with per-stage env
+pre-flight checks, a log under `logs/`, and stop-on-first-failure.
+`--skip-scrape` starts at step 3. `scripts/run_weekly_pipeline.bat` wraps it
+for Windows Task Scheduler. Scraping needs a visible Chrome so a human can
+clear Cloudflare's CAPTCHA; the run waits and continues.
 
 ```bash
-python scrapers/phase1_harvest_urls.py      # 1. Harvest eauctionsindia listing URLs (Cloudflare may need a human)
-python -u scrapers/phase2_scrape_details.py # 1b. Scrape each URL's detail page + downloads
-python -m scripts.prepare_tn_data           # 2. eauctionsindia → data/listings/eauctionsindia.jsonl (+ legacy tn_auction_data.jsonl)
-python -m scripts.harvest_sources           # 2b. BAANKNET + bankeauctions → data/listings/<source>.jsonl, downloads/<source>/
-python -m scripts.gap_report                # 2c. Read-only: what the portals add — new / matched / core fields / photos
-python -m scripts.load_tn_to_neo4j          # 3. Load every data/listings/*.jsonl (one :AuctionProperty per portal listing, :Media)
-python -m scripts.upload_downloads_to_r2    # 4. Push sale notices (+ live listings' photos) to R2
-python -m pipeline.run_pipeline             # 5. classify →
-                                            #    promote extractions into :Lot/:Parcel →
-                                            #    apply extractions to listings →
-                                            #    link re-auctions → link portal copies (SAME_LISTING_AS) →
-                                            #    build the spine (:AuctionEvent) → chain re-auctioned events
-python -m scripts.init_graph_schema         # 6. Constraints + fulltext indexes
-uvicorn api.main:app --reload               # 7. Serve agent + web UI
+python scrapers/phase1_harvest_urls.py       # 1. eauctionsindia listing URLs (Selenium)
+python -u scrapers/phase2_scrape_details.py  # 2. detail pages + notice downloads
+python -m scripts.prepare_tn_data            # 3. eauctionsindia → data/listings/eauctionsindia.jsonl
+python -m scripts.harvest_sources            # 3b. BAANKNET + bankeauctions (plain HTTPS, no browser)
+                                             #     raw → data/raw/<source>/, normalized → data/listings/
+python -m scripts.gap_report                 # 3c. read-only: what each portal adds
+python -m scripts.load_tn_to_neo4j           # 4. every data/listings/*.jsonl → :AuctionProperty (+:Media)
+python -m scripts.upload_downloads_to_r2     # 5. notices + live listings' photos → R2
+python -m pipeline.run_pipeline              # 6. graph-side stages (below)
+python -m scripts.init_graph_schema          #    constraints + fulltext indexes (idempotent, additive)
 ```
 
-### Three sources and the spine
+> **Caveat:** `run_weekly_pipeline.py` still lists a seventh stage,
+> `pipeline.embed_descriptions`, which was removed when embeddings were
+> retired (`docs/design/2026-08-22-retire-embeddings.md`). The orchestrator
+> will mark that final stage FAILED after everything else has succeeded; the
+> data is fine. Drop the stage or ignore the final status until it is removed.
 
-Listings come from three portals through one adapter contract (`sources/`):
-eauctionsindia (the original scrape), BAANKNET (the PSB Alliance portal,
-JSON API, photos on every record) and bankeauctions.com (DataTables + a NIT
-bundle of scanned notices per auction). Each portal listing is its own
-`:AuctionProperty` (ids `bn-…` / `be-…` for the new portals); the matcher
-(`sources/match.py`) bridges copies of one auction with `SAME_LISTING_AS`,
-and `scripts/build_spine.py` merges every cluster — portal rows, the sale
-notice's lot, photos — into one `:AuctionEvent` with per-field provenance.
-The agent reads one row per auction and quotes `core_complete`: how many of
-the **nine-field property core** (property type, location, extent,
-measurement, possession type, boundaries, reserve price, auction date,
-photos) are known. Baseline on the live graph, 2026-09-12: measurement 40%,
-possession 61%, photos 0%; 26% of listings had the first eight. Design and
-status: `docs/superpowers/specs/2026-09-12-source-adapters-design.md`,
-`docs/superpowers/plans/2026-09-12-source-adapters.md`, `docs/SCHEMA.md`
-("Sources and the spine").
+`pipeline.run_pipeline` (flags `--pilot`, `--limit N`, `--skip-classify`)
+runs, in order:
 
-Notable stages: **OCR** turns each notice into layout-aware markdown
-(`scripts/ocr_with_mineru.py`, Datalab or MinerU); **notice classification**
-splits single- vs multi-property notices by cluster count, corrected by human
-review (`classify_notice.py`); **extraction** is the grounded LangExtract pass
-(`load_extractions.py`, every value carries its character span in the
-markdown); **descriptions** and fields come from that extraction
-(`apply_extractions.py`). The earlier flat vision-LLM blob path
-(`ocr_extract` → `verify_and_enrich` → `load_enriched`) is retired; the
-`<field>_scraped` / `verification_status` / `extras_json` properties it wrote
-remain on older nodes as history only.
-There is no embedding stage: retrieval is structured filters over the
-LangExtract entity graph plus two Lucene fulltext indexes
-(`lot_description_ft`, `property_text_idx`) consumed by `semantic_search` —
-see `docs/design/2026-08-22-retire-embeddings.md`.
+| Stage | Module | What it does |
+| --- | --- | --- |
+| 1.3 | `pipeline.classify_notice` | Tag each `:Document` single/multi from how many listings link to it; a reviewer's override is never overwritten |
+| 4.4 | `pipeline.promote_extractions` | Grounded extractions → `:Lot` (and the derived `:Parcel` layer, being retired) |
+| 4.5 | `pipeline.apply_extractions` | Per-lot values, descriptions and agreement verdicts → `:AuctionProperty`; `write_lot_matches` decides which lot a listing *is* (reserve → EMD → borrower → identifiers; refuses a lot two listings claim) |
+| 5 | `scripts.link_reauctions` | `:SAME_PROPERTY_AS` across re-listings |
+| 5a | `scripts.link_listings` | `:SAME_LISTING_AS` across portals (`sources/match.py`); only CONFIRMED / PROBABLE edges bridge |
+| 5b | `scripts.build_spine` | One `:AuctionEvent` per cluster, rebuilt from the branches every run, with per-field provenance and `core_complete` |
+| 5c | `scripts.link_reauctions --events` | Chain re-auctioned events; stamp `attempt_no` / `previous_reserve` |
+| 6 | `describe_schema(refresh=True)` | Refresh the `:SchemaCache` node |
 
-### Sale notice → graph: the review workflow
+**Sources.** Each portal is an adapter in `sources/` producing one `Listing`
+shape. Ids: eauctionsindia stays bare, BAANKNET is `bn-…`, bankeauctions is
+`be-…`. Merge rank: BAANKNET 1, bankeauctions 2, eauctionsindia 3.
+`api/canonical.py` keeps one copy per bridged cluster in every list and
+reports the rest as `also_on`. Design: `docs/superpowers/specs/2026-09-12-source-adapters-design.md`;
+recon: `docs/source-recon-2026-09.md`.
 
-Turning one sale notice into graph rows runs through three human gates in
+### 2. Notice enrichment (OCR → classify → extract → review → graph)
+
+Turning one sale notice into graph rows passes through three human gates in
 `web/review.html`. Machines do the volume; a person confirms the few facts
 everything downstream depends on.
 
 | # | Step | Who | Where |
 |---|------|-----|-------|
-| 1 | Classify the notice: single- vs multi-property, from the scraped cluster count | machine | `pipeline/classify_notice.py` |
-| 2 | **Gate 1** — confirm the type **and the lot count** | human | review UI, *classification* stage |
-| 3 | OCR the notice into markdown (Datalab or MinerU) | machine | `scripts/ocr_with_mineru.py` |
-| 4 | **Gate 2** — check OCR quality, re-OCR or annotate blocks if poor | human | review UI, *markdown* stage |
-| 5 | Extract entities from the markdown with LangExtract | machine | `pipeline/load_extractions.py` |
-| 6 | **Gate 3** — clear the per-lot key-entity checklist (reserve price, auction date, property type, location, extent, full description, possession); a lot-count mismatch is flagged | human | review UI, *extraction* stage |
-| 7 | Resolve entities into the `:Lot` / `:Parcel` spine | machine | `pipeline/promote_extractions.py` |
+| 1 | Classify single- vs multi-property from the scraped cluster count | machine | `pipeline/classify_notice.py` |
+| 2 | **Gate 1** — confirm the type **and the lot count** (`Document.expected_lot_count`) | human | review UI, *classification* |
+| 3 | OCR the notice into layout-aware markdown | machine | `scripts/ocr_missing_markdowns.py` (Datalab default, MinerU option) |
+| 4 | **Gate 2** — check OCR quality; re-OCR, crop, rotate or annotate blocks | human | review UI, *markdown* |
+| 5 | Extract grounded entities with LangExtract (every value carries its character span) | machine | `pipeline/load_extractions.py` — Render cron every 6 h, `--stale` re-reads; or the review UI's re-run |
+| 6 | **Gate 3** — clear the per-lot key-entity checklist (reserve price, auction date, property type, location, extent, full description, possession); lot-count mismatch flagged | human | review UI, *extraction* |
+| 7 | Resolve entities into `:Lot` | machine | `pipeline/promote_extractions.py` |
 | 8 | Apply grounded fields + descriptions to `:AuctionProperty` | machine | `pipeline/apply_extractions.py` |
 
-Steps 7 and 8 both run inside `python -m pipeline.run_pipeline` (stages 4.4
-and 4.5), in that order: step 8's area comparer reads each lot's headline
-extent off the graph, so step 7 must have written it first. Step 5 is not in
-the orchestrator — it is the LangExtract call, run from the review UI or by
-hand, and the orchestrator promotes whatever `Document.extraction_json` it
-finds. Live corpus: 3,300 `:Lot` and 3,178 `:Parcel` nodes.
+What makes the extraction step trustworthy, beyond the gates:
 
-**The lot count is the thread tying gates 1 and 6 together.** At gate 1 the
-reviewer confirms how many lots the notice actually sells; it is stored as
-`Document.expected_lot_count` (confirming "single" implies 1, so most notices
-cost no extra clicks). That number then does two jobs:
+- **One page is read once.** Portals name uploads by the millisecond, so one
+  notice against six lots is six files with identical bytes. OCR keys on
+  `content_sha256` and extraction on the markdown hash
+  (`pipeline/notice_twins.py`); copies get the result, not a second bill.
+  Two-sheet notices are joined so the model sees the whole notice
+  (`scripts/stitch_sibling_pages.py`, kept fresh by `pipeline/stitch_refresh.py`).
+- **OCR health gate.** `pipeline/ocr_health.py` scores markdown for
+  repetition loops, token leaks, truncation, foreign script, table collapse
+  and near-empty pages; a page under 90 is stamped for re-OCR instead of
+  being read. `scripts/reocr_low_health_datalab.py` re-OCRs with a
+  strict-improvement gate.
+- **Reads only ever improve a notice.** `pipeline/keep_better.py` refuses a
+  re-read that loses a fact; `extraction_prev_json` + `scripts/revert_extraction.py`
+  undo one. Reviewer corrections are carried across re-reads by stable
+  entity ids (`pipeline/extraction_ids.py`).
+- **Repairs without a full re-read.** `scripts/fill_gaps.py` asks a lean
+  prompt for just a lot's missing key facts; `pipeline/absence.py` marks a
+  fact *not in the notice* so no later run pays for it again;
+  `pipeline/widen_descriptions.py` stretches a description over the details
+  its span stopped short of, with no model call.
+- **Lot-aware chunking** for long multi-lot notices (`pipeline/lot_chunks.py`,
+  `lot_windows.py`), per-notice-type model routing (`pipeline/extract_routing.py`),
+  and a retry ladder for half-read lots.
+- **Reader v2** (`pipeline/reader/`, `docs/reader-v2.md`) — a lot-first,
+  schema-locked, code-grounded reader. **Parked** since 2026-10-03: it agreed
+  with the current reader on 95% of key values and failed on a 40-lot
+  scanned table. `EXTRACT_READER=v2|shadow` turns it back on.
+- **Gate 3 is machine-judged in the funnel.** A notice advances past
+  extraction when it is *clean* (every key cell filled or marked absent, no
+  validator issue, extracted from the current markdown, lot count matching
+  the reviewer's), not when someone clicks verify. The verify flag records a
+  human read and feeds the eval gold set.
 
-- **Before extraction** — it is injected into the LangExtract prompt, so the
-  model is told how many lots to find and number (`lot_index` 1..N) instead of
-  guessing.
-- **After extraction** — gate 6 compares it against the distinct lots actually
-  extracted and flags any mismatch, which is how a missed or invented lot gets
-  caught instead of quietly reaching the graph.
+The funnel (`GET /review/pipeline`) counts documents clearing each stage:
+scraped → classified → classification reviewed → OCR'd → OCR reviewed →
+entities extracted → extraction clean → entities resolved → resolution
+reviewed. Each stage page breaks held-back notices down by check and opens
+the queue filtered to that worklist.
 
-Notices without a confirmed count are never flagged: no count means no claim.
+**Spot-check audit** (`web/spotcheck.html`, `api/review/spotcheck.py`,
+`pipeline/spotcheck.py`) is the honest measuring stick: a seeded random
+sample of atomic claims (span and attribute) over a stated population,
+stored on its own `:SpotCheckSample` node and never written back to a
+document, reported with a Wilson interval. It measures precision; recall is
+measured by the gold set (below).
 
-**Gate 3 is machine-judged in the funnel.** The overview's pipeline funnel
-advances a notice past extraction when it is *clean* — every key cell filled
-or marked absent, no validator issue, extracted from the current markdown, lot
-count matching the reviewer's — not when someone clicks verify. The verify
-flag records that a reviewer read the notice and marks it for the eval gold
-set; gating the funnel on it reported every extracted notice as stuck (see
-`docs/SCHEMA.md`, Provenance). The "Extraction clean" stage page breaks the
-held-back notices down by check and by failure pill, each row opening the
-extraction queue filtered to that worklist.
+The graph model all of this writes — `:Document` → `:Lot`, where each
+extracted field lands, provenance, boundaries — is in `docs/SCHEMA.md`.
 
-**Gate 3 is a checklist, not a read-through.** `pipeline/key_entities.py`
-turns each extraction into a lot × key table — seven cells per lot — and the
-extraction stage shows that table first. A filled cell jumps to its highlight;
-a missing one is filled by selecting the text in the markdown (stored as a
-grounded, reviewer-added entity that promotion picks up) or marked *not in
-notice* when the document never states it. The share of cells done is
-`Document.extraction_key_score`. The queue's **Failures** pills (missing
-lots, needs re-run, no borrower, description gaps, …) narrow it to one kind of
-miss at a time, the way the markdown stage's OCR-failure pills do. A lot the reviewer counted at
-gate 1 but the model never emitted shows as a row with every cell missing.
+### 3. Entity resolution (lenders, branches, places, lots)
 
-The graph model these steps write into — `:Document` → `:Lot` → `:Parcel`,
-and where each extracted field lands — is documented in
-[`docs/SCHEMA.md`](docs/SCHEMA.md).
+LangExtract stores names as the notice printed them, so the corpus held 199
+spellings for ~130 lenders and village names that match several revenue
+villages. Resolution gives each its one identity and keeps the raw string
+for audit.
+
+| Pass | Script | Writes |
+| --- | --- | --- |
+| Lenders | `scripts/resolve_bank_names.py` | `Document.bank_canonical`; safe rule = normalized token-set equality + one misread OCR token; lookalikes go to a review list |
+| Branches | `scripts/resolve_branches.py` | `Document.branch_canonical`, scoped per bank |
+| Places | `scripts/resolve_places.py` (+ `pipeline/resolve_places.py` for scraped City/Area) | `revenue_district / taluk / village`, `LOCATED_IN_*` edges, conflict flags; bottom-up and district-scoped so the 2019 district splits don't mis-file properties |
+| Lot matches | `scripts/resolve_lots.py` | Applies a reviewer's lot-match decisions (`:ResolutionDecision`) to listings |
+
+Gazetteers in `pipeline/lookups/`: LGD towns, India Post PIN→taluk, SRO→taluk,
+Census 2011 taluk lineage, taluk neighbours, OSM village aliases
+(refreshed by `scripts/refresh_village_gazetteer.py` and friends).
+
+The review UI's **resolution queue** (`/review/resolution`) shows lookalike
+pairs and conflicts; the **village queue** (`/review/resolution/villages`)
+takes one verdict per spelling per taluk, including "pick several" for split
+villages, sorted biggest-first or best-suggestion-first with a score band. "Apply my decisions" runs the resolvers; the Sunday
+`resolve-entities.yml` workflow is the safety net that applies stored
+verdicts if nobody presses it. `resolve-scorecard.yml` publishes a read-only
+weekly scorecard (linkage, places, agreement, contested fields, queue size)
+and diffs it against last week's artifact.
+
+### 4. SEO and content pipeline
+
+All generators read the live API and write static HTML into `web/`; the
+sitemap is rebuilt from the filesystem by `scripts/seo_sitemap.py`.
+
+| Output | Script | Notes |
+| --- | --- | --- |
+| `/property/<id>/` | `scripts/prerender_properties.py` | SPA shell + per-property title/OG/JSON-LD + static content block; `--refresh` restates pages whose auctions closed |
+| `/bank-auctions/<city>/<type>/` | `scripts/build_landing_pages.py` | Written only with enough live listings; real computed figures only |
+| `/guides/<slug>/` | `scripts/build_guides.py` | Long-form guides with Article + FAQ JSON-LD |
+| `/compare/auctionscope-vs-<portal>` | `scripts/build_compare.py` | Honest comparison pages |
+| Per-property OG cards | `scripts/generate_property_og.py` | 1200×630 PNGs to R2 + `web/og-manifest.json`; no authored copy |
+| `/llms.txt`, `robots.txt`, `sitemap.xml` | hand-maintained / `seo_sitemap.py` | |
+
+`seo-pages.yml` (manual dispatch, after a scrape) renders OG cards, refreshes
+closed-auction pages, regenerates property + landing pages for the given
+cities (or `all_live`), and opens a **draft PR** on `automated/seo-pages`. It
+never pushes to main. Copy rules: `docs/marketing/copy-playbook.md`.
+
+### 5. Content-ops agents
+
+Spec: `docs/marketing/content-agents.md`. Both agents **draft and stage
+only**; nothing is ever posted automatically.
+
+- **Poster** (`marketing_agents/poster.py`, `content-poster.yml`, manual
+  dispatch after a data refresh). Reads `/stats` and `/properties`, writes
+  3–5 drafts (price drops, closing soon, cheapest-by-city, a city carousel)
+  through `--prepare` → engine → `--finalize`. Engines: Claude Code on the
+  founder's Max subscription (default, `CLAUDE_CODE_OAUTH_TOKEN`) or
+  OpenRouter. `validate_drafts()` enforces the honesty rule (a figure in
+  every post, banned words, hook length). Cards render via
+  `marketing/render_social.py` (Playwright), reels via
+  `marketing/render_reel.py` (HyperFrames, pinned), both uploaded to R2.
+  Drafts land in `marketing/outputs/<date>/`, a "content-review" issue is
+  opened, and `web/social.html` (`/social/*` API, admin) is where a human
+  approves or rejects each item.
+- **Reporter** (`marketing_agents/reporter.py`). Turns an exported
+  post-metrics CSV + `/stats` into a one-page weekly report; every number is
+  computed in Python and the LLM only interprets. Not yet on a schedule.
+- `marketing/dashboard.html` is the living system-of-record for channels,
+  agents, KPIs and roadmap; any marketing change updates its data block in
+  the same PR (see `CLAUDE.md`).
 
 ---
 
@@ -374,57 +490,104 @@ Mounted in `api/main.py`. Selected endpoints:
 
 **Public**
 
-- `GET /health`, `GET /health/deep` — liveness + readiness (Neo4j, the two
-  fulltext indexes, `last_enriched` freshness; `degraded` on any failure).
-- `GET /stats` — public coverage + freshness snapshot.
-- `GET /modes` — mode registry for the UI selector.
-- `GET /properties` — browse listing with cascading facets + multi-select filters.
-- `GET /auction/{id}` — full auction detail.
-- `POST /chat` — run an agent turn (returns answer, tool artifacts, and the
-  message history to replay next turn).
-- `POST /chat/stream` — SSE streaming turn (tool progress + token streaming).
-- `GET /chat/models` — tier-aware model + reasoning-effort registry.
-- `GET|POST /alerts` — deadline alerts for saved/watchlisted properties.
+- `GET /health`, `GET /health/deep` — liveness + readiness (Neo4j, fulltext
+  indexes, `last_enriched` freshness).
+- `GET /stats` — coverage + freshness snapshot.
+- `GET /properties` — browse with cascading facets; `GET /auction/{id}`
+  (free fields only unless Pro); `GET /auction/{id}/notice`.
+- `POST /chat/agent3`, `POST /chat/agent3/stream`, `GET …/{thread}/history`,
+  `GET …/{thread}/manifests`, `DELETE …/{thread}`.
+- `GET /chat/models` — tier-aware model + reasoning-effort registry;
+  `GET /modes`; `GET /suggestions`.
+- `GET|POST /alerts`, `POST /alerts/subscribe` — deadline reminders.
 - `POST /feedback`, `GET /feedback/recent`, `PATCH /feedback/{id}/resolve`.
+- Admin comparison loops: `POST /chat/v2[/stream]`, `/chat/deep[/stream]`.
 
 **Authenticated** (Supabase JWT)
 
-- `GET|PATCH /auth/me`.
-- `GET /watchlist`, `POST|DELETE /watchlist/{id}`.
-- `GET|PUT|DELETE /conversations[/{id}]`.
-- `POST /billing/order`, `POST /billing/verify`, `POST /billing/webhook` —
-  Razorpay Pro unlock (the webhook is the sole activation path).
-- `GET|POST|DELETE /dossiers/*` — per-property document locker (mounted only
-  when `DOSSIERS_ENABLED=true`).
+- `GET|PATCH /auth/me`; `GET /watchlist`, `POST|DELETE /watchlist/{id}`;
+  `GET|PUT|DELETE /conversations[/{id}]`.
+- `POST /billing/order`, `POST /billing/verify`, `POST /billing/webhook`.
+- `/dossiers/*` — private per-property document locker (only when
+  `DOSSIERS_ENABLED=true`).
 
 **Admin**
 
 - `GET|PATCH /admin/users[/{id}]`, `GET /admin/feedback`.
-- `GET /review/*` — the enrichment-review surface: classification, markdown and
-  extraction queues, `classify` (notice type + lot count), `verify` / `edit` /
-  `unverify`, block-level annotation (`/notice/{file}/blocks…`), region
-  re-extract, crop/rotation, reingest, and source streaming.
+- `/review/*` — classification, markdown and property queues; `classify`,
+  `verify` / `edit` / `unverify`; block annotation (`/notice/{file}/blocks…`),
+  crop, rotation, ink coverage, source streaming; `/pipeline[/{stage}]`
+  funnel; `/resolution`, `/resolution/villages`, `decide` / `undo` / `apply`.
+- `/review/extraction/*` — the extraction queue, per-field edits,
+  `add-field`, `key-absent`, `rerun`, `bulk-confirm`, `stats`.
+- `/review/spotcheck/*` — draw a sample, step through items, record
+  verdicts, report.
+- `/social/*` — staged batches, item status, proxied assets and reels.
 
 ---
 
 ## Testing & evaluation
 
 ```bash
-pytest tests/api -q          # FastAPI endpoint tests (the CI gate)
-pytest tests/pipeline -q     # pipeline unit tests
+pytest tests/api -q            # FastAPI endpoint + agent3 unit tests (the CI gate)
+pytest tests/pipeline -q       # pipeline unit tests (not all green; CI picks a subset)
+pytest tests/sources -q        # portal adapters, matcher, spine
+ruff check .                   # lint (correctness rules only; see pyproject.toml)
 ```
 
-- **CI** (`.github/workflows/ci.yml`) runs `pytest tests/api` on every PR and
-  push to `main` against an in-memory Neo4j stub (no live DB needed) — ~260
-  tests covering filters, guardrails, auth, feedback, and the review surface.
-- **Golden eval** (`evals/`, `.github/workflows/golden.yml`) runs nightly: each
-  catalogue question (`evals/cases.py`) goes through the real agent and is scored
-  on **tool trajectory** (the gate) + a reference-free **LLM-as-judge** answer
-  quality. Run locally with `python -m evals.run_golden` (needs OpenRouter +
-  Neo4j creds).
-- **Feedback automation** — `sync-feedback.yml` snapshots the live feed into
-  `feedback/*.json` every 15 min; `resolve-feedback.yml` marks items resolved
-  when a fix PR with `Resolves feedback: <uuid>` merges.
+- **CI** (`.github/workflows/ci.yml`) on every PR and push to `main`:
+  `ruff`, `pip-audit` over `requirements.lock`, and pytest over `tests/api`,
+  `tests/scripts`, `tests/test_vercel_config.py`, `tests/sources` and a named
+  set of `tests/pipeline` modules, against an in-memory Neo4j stub. A
+  separate `e2e` job runs the live Razorpay test-mode flow against a real
+  Neo4j service container and goes red when the `RAZORPAY_*` secrets are
+  missing. The test job also installs `pydantic-evals` for the eval
+  tooling; `tests/api/test_no_pydantic_ai.py` keeps app code from importing
+  the pydantic-ai it brings along.
+- **Agent evals** (`evals/`):
+  - `python -m evals.run_agent3` — the agent3 tool catalogue against the live
+    graph (no model; a failure is a tool or data bug). `smoke_agent3.py`
+    drives a real model.
+  - `python -m evals.run_golden` — single-turn golden questions through the
+    tiered loop (`/chat/v2`), scored on tool trajectory + LLM-as-judge
+    (`golden.yml`, manual).
+  - `python -m evals.run_conversations` — multi-turn narrowing, carry-over,
+    no-stale-scope, also on the tiered loop (`golden-conversations.yml`,
+    manual).
+- **Extraction evals**:
+  - `python -m evals.langextract_eval --reader langextract|v2 --repeats 3` —
+    field accuracy against the hand-labelled gold set
+    (`evals/langextract_gold.py`, `evals/fixtures/`), with repeats because a
+    single run cannot tell a prompt change from noise.
+  - `evals/export_review_gold.py` turns reviewer-verified notices into gold;
+    `evals/gold_sprint_v1.md` is the 40-notice verification sprint.
+  - `evals/contextgem_eval.py` — A/B of LangExtract vs a two-stage
+    segment-then-extract workflow (findings in `evals/CONTEXTGEM_FINDINGS.md`).
+  - `scripts/ocr_ab.py` / `ocr-ab.yml` — MinerU vs Datalab side by side on
+    pasted notice URLs.
+
+---
+
+## Automation (GitHub Actions + Render cron)
+
+| Workflow | Trigger | Does |
+| --- | --- | --- |
+| `ci.yml` | PR, push to main | lint, audit, tests, e2e |
+| `data-freshness.yml` | Mondays 06:00 UTC | opens/updates an issue when `/stats.last_enriched` is older than 14 days |
+| `r2-consistency.yml` | Mondays 06:30 UTC | fails when a `:Document` points at a missing R2 object |
+| `resolve-entities.yml` | Sundays 21:30 UTC | applies stored verdicts: lenders → branches → places |
+| `resolve-scorecard.yml` | Sundays 22:00 UTC | read-only trust scorecard, diffed against last week |
+| `resolve-feedback.yml` | merged PR | marks feedback resolved from `Resolves feedback: <uuid>` in the PR body |
+| `sync-feedback.yml` | manual | snapshots `/feedback/recent` into `feedback/*.json` (was every 15 min; that exhausted the Actions budget) |
+| `golden.yml`, `golden-conversations.yml` | manual (nightly schedule paused) | agent evals |
+| `seo-pages.yml` | manual, after a scrape | regenerate SEO pages → draft PR |
+| `content-poster.yml` | manual, after a scrape | Poster drafts → staged commit + review issue |
+| `ocr-ab.yml` | manual | OCR engine comparison |
+| `cleanup-duplicate-docs.yml` | manual | duplicate `:Document` report / cleanup |
+| Render cron `auction-extract` | every 6 h | `pipeline.load_extractions --workers 24 --max-seconds 19800 --stale` |
+
+`AGENTS_ENABLED=false` (repo Actions variable) is the kill switch for the
+SEO and Poster workflows.
 
 ---
 
@@ -438,48 +601,20 @@ auction.obs neo4j.run_read_query status=ok elapsed_ms=42 rows=18 access=read
 auction.obs chat.agent_run status=ok elapsed_ms=2100 mode=ask llm_calls=2 ...
 ```
 
-Slow operations log at WARNING above env-tunable budgets — `OBS_SLOW_QUERY_MS`
-(default 1500) for Neo4j and `OBS_SLOW_AGENT_MS` (default 12000) for the LLM
-turn. `/chat` also logs a per-turn token/cache/cost summary.
+Slow operations log at WARNING above `OBS_SLOW_QUERY_MS` (default 1500) and
+`OBS_SLOW_AGENT_MS` (default 12000). Every chat turn logs a token / cache /
+cost summary.
 
-**Tracing** — `pydantic-ai` is natively OpenTelemetry-instrumented. Set
-`LOGFIRE_TOKEN` (from <https://logfire.pydantic.dev>) and `api/telemetry.py`
-lights up a full trace per chat turn — request → agent run → every LLM call
-(prompt, response, tokens, cost) → every tool call. Unset, it's a no-op. Because
-the transport is OTLP, the same instrumentation can target any OTel backend
-(LangSmith, Langfuse, Honeycomb) via `OTEL_EXPORTER_OTLP_*` instead.
+**Tracing.** Set `LOGFIRE_TOKEN` and `api/telemetry.py` emits a full
+OpenTelemetry trace per turn (request → agent → each LLM and tool call).
+Unset, it's a no-op. The transport is OTLP, so `OTEL_EXPORTER_OTLP_*` can
+point at any backend instead.
 
-**Agent3 chat transcripts** — every agent3 turn also emits an
-`agent3.chatlog` line carrying the text of the turn: the user's question, the
-answer, and each tool step (name, arguments, result) as Logfire *attributes*,
-not buried in the message. That makes a turn readable where it was previously
-only countable — the transcript itself lives in the Neo4j checkpoint, base64
-per blob, which nobody reads:
-
-```sql
-SELECT start_timestamp,
-       attributes->>'thread_'   AS thread,
-       attributes->>'question'  AS question,
-       attributes->>'answer'    AS answer,
-       attributes->>'steps_json' AS steps
-FROM records
-WHERE attributes->>'op' = 'agent3.chatlog'
-ORDER BY start_timestamp DESC LIMIT 20
-```
-
-A turn that *fails* gets a line too — `outcome` is `ok`, `error` or
-`cancelled` (a closed tab cancels the turn; that is not an error), with `err`
-naming what broke. The graph returns no messages on an exception, so the steps
-on those lines come from the tools recording themselves as they ran: name,
-arguments, result status and duration, but size summaries rather than payloads.
-Every `agent3.tool` line also carries `thread`, so tool timings join to a
-conversation without needing the trace.
-
-This is user text leaving the box, so it has an off switch and a ceiling:
-`AGENT3_CHATLOG=0` disables capture without a deploy (the token/latency lines
-keep flowing), and `AGENT3_CHATLOG_MAX_CHARS` (default 4000) caps each field —
-tool payloads get a quarter of that. Clipped values carry a `… (+N chars)`
-suffix rather than looking complete.
+**agent3 chat transcripts.** Each turn also emits an `agent3.chatlog` line
+with the question, answer and every tool step as attributes, with `outcome`
+`ok` / `error` / `cancelled`, so a turn is readable in Logfire without opening
+the Neo4j checkpoint. `AGENT3_CHATLOG=0` switches capture off;
+`AGENT3_CHATLOG_MAX_CHARS` (default 4000) caps each field.
 
 Point uptime monitoring at `GET /health/deep`.
 
@@ -487,24 +622,28 @@ Point uptime monitoring at `GET /health/deep`.
 
 ## Deployment
 
-- **Frontend** → **Vercel** (serves `web/` as a static site; `vercel.json`).
-- **Backend** → **Render** (Python web service; `render.yaml`, installs the slim
-  root `requirements.txt`).
-- **Database** → **Neo4j Aura** (hosted).
-- **Auth** → **Supabase**. **Notices** → **Cloudflare R2**.
-- **Tracing** (optional) → **Logfire** / any OTLP backend.
+- **Frontend** → **Vercel**, serving `web/` statically (`vercel.json`: CSP,
+  cache headers, SPA rewrites for `/chat`, `/property/:id`, `/watchlist`,
+  `/dossiers`, `/lab`).
+- **Backend** → **Render** (`render.yaml`): web service `auction-api`
+  (starter plan, Singapore, `pip install -r requirements.lock`,
+  `preDeployCommand: python -m scripts.init_auth_schema`, health check
+  `/health`) and cron `auction-extract`.
+- **Database** → **Neo4j Aura**. **Auth** → **Supabase**.
+  **Files** → **Cloudflare R2**. **Payments** → **Razorpay**.
+  **Tracing** (optional) → **Logfire** / any OTLP backend.
 
-The SPA resolves the production API base at runtime, so a fresh deploy needs no
-hand-edited URL.
+Browser page loads on `api.auctionscope.in` or `*.onrender.com` are
+301-redirected to `www.auctionscope.in` so the Supabase session lives on one
+origin; API routes answer on every host.
 
 ---
 
 ## Dependencies
 
-- `requirements.txt` — production (Render) install. Compatible-release ranges
-  (`>=x,<next-major`) so deploys don't pick up surprise breaking upgrades.
-- `requirements.lock` — fully pinned, transitive lock for byte-for-byte
-  reproducible installs (`pip install -r requirements.lock`). Regenerate after
-  editing `requirements.txt` (steps in the lock file's header).
-- `config/requirements.txt` — full local-dev set (adds scraping, OCR, report
-  generation, and the eval harness), same ranges where deps overlap.
+- `requirements.txt` — production ranges (`>=x,<next-major`).
+- `requirements.lock` — fully pinned transitive lock used by Render and CI;
+  regenerate after editing `requirements.txt` (steps in the lock's header).
+- `config/requirements.txt` — full local-dev set (scraping, OCR, reports,
+  evals).
+- Python 3.11 in production and CI (`render.yaml`, `ci.yml`).

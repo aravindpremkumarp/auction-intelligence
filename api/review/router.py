@@ -870,6 +870,9 @@ class VillageQueueRow(BaseModel):
     snippet: str | None = None
     snippet_file: str | None = None
     candidates: list[VillageCandidate] = []
+    #: ``candidates[0].score`` — the number the confidence sort and the score
+    #: band go by. None when no official name comes close.
+    best_score: float | None = None
 
 
 class VillageQueueDistrict(BaseModel):
@@ -884,6 +887,8 @@ class VillageQueueOut(BaseModel):
     matching: int = 0
     offset: int = 0
     limit: int = 25
+    #: 'size' (biggest first) or 'confidence' (best suggestion first).
+    sort: str = "size"
     districts: list[VillageQueueDistrict] = []
     rows: list[VillageQueueRow] = []
 
@@ -1086,15 +1091,20 @@ def review_resolution_queues(
 def review_resolution_villages(
     district: str | None = Query(default=None, max_length=80),
     search: str | None = Query(default=None, max_length=80),
+    sort: Literal["size", "confidence"] = Query(default="size"),
+    score_from: float | None = Query(default=None, ge=0, le=100),
+    score_to: float | None = Query(default=None, ge=0, le=100),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=25, ge=1, le=100),
     _admin: UserOut = Depends(get_current_admin),
 ) -> VillageQueueOut:
     """Villages the gazetteer could not place, one row per spelling in its
-    taluk, biggest first, with the notice's own words and the taluk's closest
-    official names beside each."""
+    taluk, with the notice's own words and the taluk's closest official names
+    beside each. Biggest first by default; ``sort=confidence`` puts the best
+    suggestion first, and ``score_from`` / ``score_to`` keep one band of it."""
     return VillageQueueOut(**q.village_queue(
-        district=district, search=search, offset=offset, limit=limit))
+        district=district, search=search, offset=offset, limit=limit,
+        sort=sort, score_from=score_from, score_to=score_to))
 
 
 @router.get("/resolution/villages/options", response_model=list[VillageOption])
