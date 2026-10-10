@@ -2,20 +2,13 @@
 evals/run_conversations.py
 --------------------------
 Live multi-turn conversation runner. Plays each scripted conversation
-(`evals/conversations.py`) through the real chat agent, threading message
-history and re-deriving the rolling scope between turns EXACTLY as the /chat
-router does — so the eval tests the real carry-over behavior, not a
-reimplementation of it. Applies the conversation-level evaluators (trajectory,
-monotonic narrowing, filter carry-over, no-stale-scope), prints a report, and
-exits non-zero when the pass rate regresses below threshold.
-
-State threading per turn mirrors `api/chat/router.py::_prepare_turn`:
-  * the previous turn's `result.all_messages()` becomes the next
-    `message_history`;
-  * `_extract_active_filters()` (imported from the router, not re-implemented)
-    rebuilds the rolling scope + last total_count, which seed the next
-    `ChatDeps` so the agent gets the same "Active search scope" block it would
-    in production.
+(`evals/conversations.py`) through the tiered chat loop (`/chat/v2`),
+threading its scope object between turns exactly as the v2 router does — so
+the eval tests the real carry-over behavior, not a reimplementation of it.
+Applies the conversation-level evaluators (trajectory, monotonic narrowing,
+filter carry-over, no-stale-scope), prints a report, and exits non-zero when
+the pass rate regresses below threshold. The binding is
+`evals/tasks.py::conversation_v2`.
 
 When ``LOGFIRE_TOKEN`` is set the run streams to Logfire like the single-turn
 eval.
@@ -96,8 +89,7 @@ async def _run_conversation(conv_id: str) -> ConversationOutput:
     """Play one scripted conversation through the agent under test.
 
     The binding itself lives in `evals/tasks.py`, shared with the golden
-    runner and selected by EVAL_AGENT — see that module for why both agents
-    must be scored by exactly the same evaluators.
+    runner.
     """
     from evals.tasks import conversation_task
 

@@ -3,10 +3,10 @@ api/telemetry.py
 ----------------
 Optional distributed tracing via Pydantic Logfire.
 
-`pydantic-ai` is natively instrumented with OpenTelemetry, so turning Logfire
-on captures a full trace of every chat turn — the agent run, each LLM request
-(with prompt/response, token counts, and cost), and every tool call — viewable
-as a waterfall in the Logfire UI. This is the "observability" half of the
+Turning Logfire on captures a trace of every chat turn: a FastAPI request
+span, an HTTPX span for each model call to OpenRouter, and the structured
+`auction.obs` / `api` log lines (per-turn token counts, tool timings, the
+agent3 chatlog) attached to it — viewable as a waterfall in the Logfire UI. This is the "observability" half of the
 LangSmith-style setup; the "evaluation" half lives in the `evals/` package.
 
 Design mirrors `api/observability.py`: it is a **no-op when unconfigured** so
@@ -41,7 +41,7 @@ def telemetry_enabled() -> bool:
 
 
 def configure_telemetry(app: object | None = None) -> bool:
-    """Configure Logfire + pydantic-ai/FastAPI/HTTPX instrumentation.
+    """Configure Logfire + FastAPI/HTTPX instrumentation.
 
     Returns True when tracing was switched on, False when it stayed a no-op
     (no token configured, or the optional ``logfire`` dependency is missing).
@@ -52,7 +52,7 @@ def configure_telemetry(app: object | None = None) -> bool:
     app:
         The FastAPI app to instrument for request spans. Optional so this
         module has no hard dependency on FastAPI and can be called from the
-        eval runner (which has no web app) just for agent/LLM tracing.
+        eval runner (which has no web app) just for LLM call tracing.
     """
     global _configured
     if _configured:
@@ -79,10 +79,6 @@ def configure_telemetry(app: object | None = None) -> bool:
         send_to_logfire="if-token-present",
         console=False,  # don't duplicate spans onto stdout in prod logs
     )
-    # Captures the agent run + every model request (prompt, response, tokens,
-    # cost) and tool call as spans — this is the core of the trace.
-    logfire.instrument_pydantic_ai()
-
     # Ship our own structured log lines into Logfire. `auction.obs` carries
     # api/observability.py's `timed()` and `record()` output — chat latency,
     # per-turn token counts, per-tool-call timings, Neo4j query timings.

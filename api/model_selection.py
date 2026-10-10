@@ -2,12 +2,12 @@
 api/model_selection.py
 ----------------------
 Pure (network-free, agent-free) logic for the user-selectable chat model and
-reasoning-effort toggles. Kept separate from `api/agent.py` so the gating rules
-and the OpenRouter `extra_body` shape can be unit-tested without building the
-real pydantic-ai agent (which pulls in Neo4j, tools, etc.), and so the chat
-router can import the resolvers without importing the agent.
+reasoning-effort toggles. Kept separate from the agents so the gating rules
+and the OpenRouter `extra_body` shape can be unit-tested without building a
+real agent (which pulls in Neo4j, tools, LangChain, etc.), and so the chat
+routers can import the resolvers without importing an agent.
 
-Two user-facing toggles ride on a /chat request:
+Two user-facing toggles ride on a chat request:
 
   * **model** — "flash" (cheap/fast) or "pro" (deeper reasoning). Free and
     anonymous users are hard-locked to Flash server-side; the client toggle is
@@ -18,7 +18,8 @@ Two user-facing toggles ride on a /chat request:
     "use the server default" (OPENROUTER_CHAT_REASONING_EFFORT).
 
 `build_model_settings` turns a resolved effort into the OpenRouter `extra_body`
-dict; `api/agent.py` pairs it with a concrete model object per request.
+dict; `api/agent3/agent.py` and `api/chat/v2/agents.py` pair it with a
+concrete model object per request.
 """
 from __future__ import annotations
 
@@ -158,7 +159,7 @@ def _provider_routing() -> dict | None:
 
 
 def build_model_settings(reasoning_effort: str | None = None) -> dict:
-    """Build the pydantic-ai `model_settings` dict for a chat turn.
+    """Build the per-turn model settings (the OpenRouter `extra_body`).
 
     `reasoning_effort=None` uses the server default; pass a resolved value
     (from `resolve_reasoning_effort`) to honor a per-request toggle. The
