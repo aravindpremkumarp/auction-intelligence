@@ -70,11 +70,14 @@ def in_service_area(prop: str = "a") -> str:
     False only for a listing placed outside Tamil Nadu and not in Puducherry
     or Karaikal (``pipeline.place_resolution.out_of_area``). The lot it IS
     decides when the listing has one, since a lot carries the notice's own
-    state; a listing with no ``IS_LOT`` falls back to its own flag. Nothing is
-    deleted: the row stays in the graph, the review page and direct links.
+    state; a listing with no ``IS_LOT`` falls back to its own flag, or to
+    ``notice_out_of_area`` — set when its notice's lot was outside Tamil Nadu
+    and so never loaded (``pipeline.promote_extractions``). The listing row
+    itself stays in the graph, the review page and direct links.
     """
     return (
         f"NOT (EXISTS {{ MATCH ({prop})-[:IS_LOT]->(_oa:Lot) WHERE _oa.out_of_area = true }} "
-        f"OR (coalesce({prop}.out_of_area, false) "
+        f"OR ((coalesce({prop}.out_of_area, false) "
+        f"OR coalesce({prop}.notice_out_of_area, false)) "
         f"AND NOT EXISTS {{ MATCH ({prop})-[:IS_LOT]->(:Lot) }}))"
     )

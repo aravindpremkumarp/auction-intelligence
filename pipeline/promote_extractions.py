@@ -1293,6 +1293,41 @@ def rebuild_document_lots(filename: str) -> int:
     return int((list(out[0].values())[0] if out else 0) or 0)
 
 
+# ── lots outside Tamil Nadu ──────────────────────────────────────────────────
+#
+# A lot placed outside Tamil Nadu (and not Puducherry/Karaikal — see
+# place_resolution.out_of_area) is not written at all. Banks auction on both
+# sides of the border in one notice, so these used to be loaded and hidden
+# read-side; now they are never loaded, and any copy an earlier run left is
+# deleted the same way _REBUILD_DOC_LOTS deletes a lot: the four owned
+# children go with it, the shared nodes are only detached.
+#
+# The keys are recorded on the Document so apply_extractions can tell a
+# listing whose lot was dropped here (keep it hidden) from one whose lot has
+# not been promoted yet (link it later).
+
+_DROP_OUT_OF_AREA_LOTS = """
+MATCH (d:Document {filename: $filename})
+SET d.out_of_area_lot_keys = CASE WHEN size($keys) > 0 THEN $keys END
+WITH d
+UNWIND $keys AS key
+MATCH (l:Lot {lot_key: key})
+OPTIONAL MATCH (l)-[:HAS_EXTENT]->(m:Measurement)
+OPTIONAL MATCH (l)-[:HAS_BOUNDARY]->(b:Boundary)
+OPTIONAL MATCH (l)-[:HAS_SCHEDULE]->(s:Schedule)
+OPTIONAL MATCH (l)-[:OFFERED_IN]->(a:Auction)
+DETACH DELETE m, b, s, a, l
+RETURN count(DISTINCT l) AS lots
+"""
+
+
+def drop_out_of_area_lots(filename: str, keys: list[str]) -> int:
+    """Record a notice's out-of-area lot keys and delete any such lot already
+    in the graph. Called with an empty list it clears the record."""
+    out = write(_DROP_OUT_OF_AREA_LOTS, {"filename": filename, "keys": keys})
+    return int((list(out[0].values())[0] if out else 0) or 0)
+
+
 def promote_document(doc: dict, dry_run: bool,
                      rebuild: bool = False) -> tuple[int, Counter]:
     filename = doc["filename"]
@@ -1300,17 +1335,24 @@ def promote_document(doc: dict, dry_run: bool,
                                          doc.get("corrections_json"))
     notice, lots = build_lots(entities, filename)
     provenance = lot_provenance(entities)
+    # Placed before anything is written: a lot outside Tamil Nadu is not
+    # loaded at all (drop_out_of_area_lots).
+    all_places = [lot_place(rec) for rec in lots]
+    dropped = [p["lot_key"] for p in all_places if p["out_of_area"]]
+    places = [p for p in all_places if not p["out_of_area"]]
+    lots = [rec for rec in lots if rec["lot_key"] not in dropped]
     if dry_run:
-        places = [lot_place(rec) for rec in lots]
         print(f"  [dry-run] {filename}: {len(lots)} lot(s), "
               f"{sum(len(l['identifiers']) for l in lots)} identifier(s), "
               f"{sum(len(l['measurements']) for l in lots)} extent(s), "
               f"{sum(1 for p in places if p['village'])}/{len(places)} placed "
-              f"({Counter(p['status'] for p in places).most_common()})")
+              f"({Counter(p['status'] for p in places).most_common()}), "
+              f"{len(dropped)} outside Tamil Nadu skipped")
         return len(lots), Counter(p["status"] for p in places)
 
     if rebuild:
         rebuild_document_lots(filename)
+    drop_out_of_area_lots(filename, dropped)
 
     officer = notice.get("authorised_officer") or notice.get("liquidator")
     emd = notice.get("emd_account") or {}
@@ -1366,7 +1408,6 @@ def promote_document(doc: dict, dry_run: bool,
             "auction": auction,
             "outstanding": [o for o in rec["outstanding"] if o["account_no"]],
         })
-    places = [lot_place(rec) for rec in lots]
     write_places(places)
     stats = Counter(p["status"] for p in places)
     # Namespaced so the run summary can report multi-parcel extents separately
