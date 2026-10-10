@@ -182,6 +182,18 @@ that fits our skills-based repo. OTP/SSO sources (Tamil Nilam, TNGIS) are best
 handled as **user-authenticated / upload** flows — which is exactly what the
 dossier locker already does.
 
+### Update 2026-10-10 — the dropdown lists *do* have a plain listing API
+
+The "no direct API" verdict above was about the parcel/map layer. The search
+panel's District → Taluk → Village → Survey-number lists come from a separate,
+plain `GET …/apps/generic_api/v2/admin_master_*` API (JSON, two custom headers),
+and the TamilNilam Geo-Info Android app (`org.tnega.tamil.nilam`) shares that
+backend. Only the Sub-division list sits behind the login + encrypted
+`check-areg` call. Endpoints, a resumable walker and a browser-backed
+sub-division fetcher now live in `scrapers/tamilnilam_dropdowns.py` /
+`scrapers/tamilnilam_subdivisions.py`; trail and caveats in
+`docs/tamilnilam_dropdowns.md`.
+
 ### Legal / positioning note
 
 Even LandLens stamps its own report "not legal advice / not a lawyer substitute"
