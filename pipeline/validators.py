@@ -18,6 +18,8 @@ import json
 import re
 from pathlib import Path
 
+from pipeline.lot_pairing import lot_pairing
+
 # Penalty (0-100 scale) per severity; score = 100 - sum(penalties), floored at 0.
 # The priority fields a reviewer weights most — full_description, property_type,
 # possession, extent, UDS, borrower, reserve price (the fields that make a lot
@@ -49,12 +51,13 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 8   # 4: full_description_incomplete stops charging details
+SCORE_VERSION = 9   # 4: full_description_incomplete stops charging details
                     # that are not a truncation; detail_wrong_lot (med) added
                     # 5: one span tagged to several lots is the nearest lot's
                     # 6: wrong_lot only when the lot has its own such detail
                     # 7: never for a header sentence, a status, or a reviewer's add
                     # 8: a location copy only when it names another village
+                    # 9: lot_pairing_off (med) — description vs own reserve/borrower
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -672,6 +675,21 @@ def validate(extractions, source_text: str = "") -> dict:
         flag("detail_wrong_lot", "med",
              f"detail tagged to one lot sits in another lot's description ({detail})")
 
+    # ── lot pairing: is each description with its own price and borrower? ────
+    # A description under the wrong lot's reserve price links to a listing
+    # cleanly and reads as healthy, so nothing downstream catches it. Med, not
+    # high: a scan that reads newspaper columns out of order also trips it,
+    # and there the pairing is often right — it asks for a look, not a redo.
+    pairing = lot_pairing(extractions, source_text)
+    if pairing["crossed"] or pairing["split"]:
+        parts = [f"lots {a} and {b}: descriptions and reserve prices are in "
+                 f"opposite order" for a, b in pairing["crossed"]]
+        parts += [f"lot {li}: {', '.join(what)} in another lot's part of the "
+                  f"notice ({pairing['layout']})"
+                  for li, what in sorted(pairing["split"].items())]
+        flag("lot_pairing_off", "med",
+             "description may be linked to the wrong lot — " + "; ".join(parts))
+
     score = max(0, 100 - sum(_PENALTY[i["severity"]] for i in issues))
     return {
         "score": score,
@@ -689,6 +707,8 @@ def validate(extractions, source_text: str = "") -> dict:
             "full_description_wrong_lot_lots": len(cov["lots_wrong_lot"]),
             "full_description_excused_lots": len(cov["lots_excused"]),
             "lots_missing_full_description": len(cov["lots_missing_full_description"]),
+            "lot_pairing_crossed": len(pairing["crossed"]),
+            "lot_pairing_split_lots": len(pairing["split"]),
         },
     }
 
