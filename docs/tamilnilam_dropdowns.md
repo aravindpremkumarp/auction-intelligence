@@ -2,9 +2,33 @@
 
 **Code:** `scrapers/tamilnilam_dropdowns.py` (District → Taluk → Village → Survey
 number) and `scrapers/tamilnilam_subdivisions.py` (→ Sub-division, browser).
-**Status:** written 2026-10-10 from a verified third-party trail; **not yet run
-live from this repo** (the host resets connections from the cloud box).
-**First live run = verification run.** Start with `--level district`.
+**Status:** verified live on 2026-10-10 from a home connection (the cloud box
+could not reach the host). The four listing levels answer **without any login
+or cookie**, with the default `x-app-name: demo` header:
+
+| Level | Rows | Calls | Time |
+| --- | --- | --- | --- |
+| district | 38 | 1 | 1 s |
+| taluk | 302 | 38 | (in the village run) |
+| village | 17,164 | 302 | 340 s for taluk + village |
+| survey (Tiruvallur / Ponneri only) | 36,357 across 198 villages | 198 | 226 s |
+
+No 429s, no retries, every row had a code, English name and Tamil name. Each
+level also carries an `*_lgd_code` field (`district_lgd_code`,
+`taluk_lgd_code`, `village_lgd_code`) that the normaliser leaves under `raw`.
+The survey rows are bare `{"survey_number": "..."}`.
+
+**What it did NOT do: improve the village gazetteer.** Running the CSV through
+`scripts/refresh_village_gazetteer.py` (dry run) against the live graph:
+17,105 of 17,164 villages already present, 6 held under another spelling, 19
+missing (17 in Thanjavur / Thiruvonam, 1 each in Tirukalukundram and
+Vembakkam), and the graph holds 5,567 villages TNGIS does not. The graph's
+thin urban taluks are thin in TNGIS too (Chennai 48, Avadi 21, exactly the
+counts the gazetteer script complains about), and Thirumullaivoyal,
+Paruthipattu, Selaiyur, Madakulam and Thoraipakkam are absent from TNGIS as
+well. The existing gazetteer was evidently loaded from this same register;
+closing the resolution gap needs a different source (LGD, eServices) or a
+non-revenue-village layer for urban areas, not this scrape.
 
 ## The app and its backend
 
@@ -16,10 +40,10 @@ call:
 
 | Dropdown | How the viewer fills it | Login? |
 | --- | --- | --- |
-| District | `GET generic_api/v2/admin_master_district` | not known to be needed |
-| Taluk | `GET generic_api/v2/admin_master_taluk` | same |
-| Village | `GET generic_api/v2/admin_master_village` | same |
-| Survey number | `GET generic_api/v2/admin_master_survey_number` | same |
+| District | `GET generic_api/v2/admin_master_district` | **no** (verified 2026-10-10) |
+| Taluk | `GET generic_api/v2/admin_master_taluk` | no |
+| Village | `GET generic_api/v2/admin_master_village` | no |
+| Survey number | `GET generic_api/v2/admin_master_survey_number` | no |
 | Sub-division | `POST gi_viewer_api/…/land/check-areg` (encrypted, session-keyed) | **yes** + captcha, 50/hour/account |
 
 Listing calls, exactly as the viewer makes them:
@@ -36,8 +60,11 @@ GET {BASE}admin_master_survey_number?district_code=D&taluk_code=T&revenue_villag
         &area_type=rural&data_type=cadastral&request_type=survey_number
 
 reply: {"success": 1, "data": [ ... ]}
-fields seen: district_code, district_english_name, taluk_code, taluk_english_name,
-             village_code, village_english_name, survey_number
+fields seen (live, 2026-10-10):
+  district: district_code, district_lgd_code, district_english_name, district_tamil_name
+  taluk:    taluk_code, taluk_lgd_code, taluk_english_name, taluk_tamil_name
+  village:  village_code, village_lgd_code, village_english_name, village_tamil_name
+  survey:   survey_number
 ```
 
 Sub-divisions: the page encrypts `{district_code, taluk_code, village_code,
@@ -50,10 +77,9 @@ runs that same `fetch` inside the page.
 
 Source of the shapes: [sivaramanRW/scraper-glv](https://github.com/sivaramanRW/scraper-glv)
 (`scrape.py`), a working Playwright scraper of the viewer that walks exactly
-this hierarchy. It runs the listing calls from inside a logged-in page, so
-**whether they answer without a session cookie is unconfirmed** — if the first
-run gets `success != 1`, paste a logged-in browser's `Cookie` header into
-`TAMILNILAM_COOKIE` and retry. The earlier note in
+this hierarchy. It runs the listing calls from inside a logged-in page, but the
+live run confirmed they answer with no session at all; `TAMILNILAM_COOKIE`
+stays as an escape hatch should that change. The earlier note in
 `inspiration/2026-07-06-browser-agents-for-tngis-extraction.md` that TNGIS has
 "no direct API" was about the map/parcel layer; the listing API is a separate,
 plainer thing.

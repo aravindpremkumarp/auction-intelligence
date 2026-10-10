@@ -31,10 +31,12 @@ hour. ``scrapers/tamilnilam_subdivisions.py`` drives a real browser for that
 level and plugs in here through ``SubdivisionFetcher``.
 
 Endpoint shapes were taken from a working third-party scraper of the viewer
-(docs/tamilnilam_dropdowns.md has the trail). They have NOT been exercised
-from this repository's network yet — the host resets connections from the
-cloud box this was written on — so the first live run is also the
-verification run: ``--level district`` first, then widen.
+(docs/tamilnilam_dropdowns.md has the trail) and verified live on 2026-10-10:
+38 districts, 302 taluks, 17,164 villages in 341 calls over 340 s, plus
+36,357 survey numbers for Ponneri's 198 villages — no login, no cookie, no
+429s. Every level also returns an ``*_lgd_code`` field, kept under ``raw``.
+Note the graph's village gazetteer already held 17,105 of those villages (see
+the doc): this is a verified source, not a gap-closer.
 
 OUTPUT (``--out``, default ``data/tamilnilam/``)
 ------------------------------------------------
