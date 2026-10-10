@@ -31,7 +31,7 @@ def test_too_few_lots_teach_nothing():
 
 
 def test_the_table_never_learns_from_its_own_answers():
-    assert not LEARN_FROM & {"sro-taluk", "city-taluk", "pin-taluk", "district-sound",
+    assert not LEARN_FROM & {"sro-taluk", "city-taluk", "pin-taluk", "district-sound", "district-fuzzy",
                              "neighbour-taluk"}
 
 

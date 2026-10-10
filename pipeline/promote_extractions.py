@@ -67,7 +67,7 @@ from pipeline.measures import (
 from pipeline.lot_windows import renumber_window_lots
 from pipeline.obs import get_logger
 from pipeline.place_resolution import (
-    Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
+    Gazetteer, district_fuzzy_place, district_sound_place, load_pin_taluks, load_sro_taluks,
     load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
     neighbour_taluk_place, out_of_area,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
@@ -417,7 +417,8 @@ def lot_place(rec: dict) -> dict:
     # (place_resolution.village_pieces_place), then the taluk the
     # sub-registrar office, the town or the PIN code names (taluk_hint_place),
     # then the one village of the district that sounds like it
-    # (district_sound_place), then the taluks the named one was split from or
+    # (district_sound_place) or spelt like it (district_fuzzy_place), then the
+    # taluks the named one was split from or
     # into (neighbour_taluk_place). After the verdicts, which outrank them all.
     hinted = village_pieces_place(
         gaz, {"district": district, "taluk": taluk, "village": village,
@@ -429,6 +430,7 @@ def lot_place(rec: dict) -> dict:
         city=loc.get("city"), sro_taluks=sro_taluks(),
         pin=lot_pin(rec), pin_taluks=pin_taluks())
     hinted = district_sound_place(gaz, hinted, loc.get("village"))
+    hinted = district_fuzzy_place(gaz, hinted, loc.get("village"))
     hinted = neighbour_taluk_place(gaz, hinted, loc.get("village"), taluk_neighbours())
     # Then the taluk the village has moved to since 2011, when the notice
     # still names the taluk as it was (place_resolution.lineage_place).

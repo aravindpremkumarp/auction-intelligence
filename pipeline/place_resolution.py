@@ -61,6 +61,15 @@ FUZZY_MIN = 90.0
 # The winner must beat the runner-up by this much. Two villages in one taluk
 # scoring alike means the taluk has near-twins and neither can be trusted.
 FUZZY_MARGIN = 4.0
+# The floor for the one fuzzy search that runs wider than a taluk
+# (Gazetteer.village_by_district_fuzzy). A whole district's pool holds more
+# near-misses than one taluk's, and the corpus showed where they land: both
+# wrong answers the rule gave on today's unplaced lots ("Pallikaranai" read as
+# Cheyyur's Pakkaranai, "Dadagapatti" as Mettur's Thasagapatti through a
+# copy's spelling) sat at exactly 90.0, while on placed lots with the taluk
+# hidden the floor of 91 kept 522 right answers and the same 2 wrong as 90
+# did (705 right). One point of floor for the widest guess.
+DISTRICT_FUZZY_MIN = 91.0
 
 # Historic, colloquial and administrative names. Similarity cannot find these
 # — the letters differ too much — so they are stated outright.
@@ -611,12 +620,14 @@ def _part_order(part: str) -> tuple[int, str]:
     return 0, part
 
 
-def _fuzzy_match(needle: str, pool: dict[str, str]) -> tuple[str, float] | None:
+def _fuzzy_match(needle: str, pool: dict[str, str], *,
+                 floor: float = FUZZY_MIN) -> tuple[str, float] | None:
     """Best guarded fuzzy match of ``needle`` among ``{key: display}``.
 
     Four guards, each earning its place on real corpus failures:
 
-    * ``FUZZY_MIN`` — a weak best guess is worse than none.
+    * ``floor`` (``FUZZY_MIN``, or ``DISTRICT_FUZZY_MIN`` for the one search
+      wider than a taluk) — a weak best guess is worse than none.
     * same first letter — ``Murukampattu`` scores 86 against the unrelated
       ``Erukkampattu``; a shared opening keeps neighbouring villages apart.
     * ``FUZZY_MARGIN`` over the runner-up — a taluk containing near-twins
@@ -637,7 +648,7 @@ def _fuzzy_match(needle: str, pool: dict[str, str]) -> tuple[str, float] | None:
     # spelling points at its original, and must not tie against it.
     runner_up = next((score for score, key in scored[1:]
                       if pool[key] != pool[top_key]), 0.0)
-    if top_score < FUZZY_MIN:
+    if top_score < floor:
         return None
     if needle[:1] != top_key[:1]:
         return None
@@ -768,6 +779,9 @@ class Gazetteer:
         # Every village of a district by sound, built on first use
         # (village_by_district_sound).
         self._sound_district: dict[str, dict[str, set]] | None = None
+        # Every village of a district by folded spelling, as the guarded
+        # matcher's pool, built on first use (village_by_district_fuzzy).
+        self._fuzzy_district: dict[str, dict[str, frozenset]] | None = None
         # Census-town rows per taluk, by the folded name without "(Ct)": the
         # register holds "Padappai (Ct)" beside the revenue village of the same
         # place ("Patapai"), and which of the two a notice means is not a
@@ -990,6 +1004,53 @@ class Gazetteer:
         if len(hits) != 1:
             return None
         village, taluk = next(iter(hits))
+        if (taluk, normalize_place(village)) in self._v_ambiguous:
+            return None
+        return village, taluk
+
+    def village_by_district_fuzzy(self, value: str,
+                                  district: str) -> tuple[str, str] | None:
+        """``(village, taluk)`` for a name spelt like exactly one village of
+        ``district`` — "Thiruvanmiyur" for Thiruvanmaiyur, "Puraswalkam" for
+        Purasawalkam — when the notice gives no usable taluk and the sound
+        rule has passed. It is the sound rule's gap this closes: ``sound_key``
+        reads "ai" and "i" as two sounds, so a vowel-swapped spelling never
+        meets its village there, yet is a plain spelling match at 96.
+
+        Fuzzy at district scope is what ``village_in_district`` refuses, and
+        for good reason, so this takes every guard the in-taluk matcher has
+        (:func:`_fuzzy_match`: same first letter, ``FUZZY_MARGIN`` over the
+        best spelling of ANOTHER village, identical digits) with a higher
+        floor, ``DISTRICT_FUZZY_MIN``, and runs it over the district's pool,
+        where a copy's spelling counts for its original. Then the sound
+        rule's own checks: the same part, number, initials and qualifiers
+        (:func:`village_shape`), so a forest "Badur R.F." or a part
+        "Kengarai 1" is never the plain name, and a name the district holds
+        in two taluks places nothing. A name the district holds exactly is
+        not this rule's: the exact search had it.
+
+        Checked on placed lots with the taluk hidden (2026-10-10): of the
+        1,239 whose spelling is not the register's, 522 right, 2 wrong, the
+        rest refused.
+        """
+        if not (value or "").strip() or not district:
+            return None
+        if not self._v_by_district.get(district):
+            return None
+        key = normalize_place(value)
+        if key in self._v_by_district[district]:
+            return None
+        if self._fuzzy_district is None:
+            self._fuzzy_district = {
+                d: {k: frozenset(pairs) for k, pairs in pool.items()}
+                for d, pool in self._v_by_district.items()}
+        hit = _fuzzy_match(key, self._fuzzy_district.get(district) or {},
+                           floor=DISTRICT_FUZZY_MIN)
+        if not hit or len(hit[0]) != 1:
+            return None
+        village, taluk = next(iter(hit[0]))
+        if village_shape(value) != village_shape(village):
+            return None
         if (taluk, normalize_place(village)) in self._v_ambiguous:
             return None
         return village, taluk
@@ -1452,6 +1513,21 @@ def district_sound_place(gaz: "Gazetteer", res: dict, village: str | None) -> di
         return res
     return {**res, "village": hit[0], "taluk": hit[1],
             "village_status": "resolved", "village_source": "district-sound"}
+
+
+def district_fuzzy_place(gaz: "Gazetteer", res: dict, village: str | None) -> dict:
+    """``res`` placed by the one village of its district spelt like
+    ``village`` (:meth:`Gazetteer.village_by_district_fuzzy`), when the notice
+    gave a district but no usable taluk and the sound rule found nothing.
+    Source ``district-fuzzy``."""
+    if (res.get("village") or res.get("village_parts") or not village
+            or res.get("village_status") != "no-parent-taluk" or not res.get("district")):
+        return res
+    hit = gaz.village_by_district_fuzzy(village, res["district"])
+    if not hit:
+        return res
+    return {**res, "village": hit[0], "taluk": hit[1],
+            "village_status": "resolved", "village_source": "district-fuzzy"}
 
 
 # ── A village field holding more than one name ───────────────────────────────

@@ -48,7 +48,7 @@ from pipeline.place_resolution import PIN_TALUKS, SRO_TALUKS, TALUK_NEIGHBOURS, 
 MIN_LOTS = 3
 MIN_SHARE = 0.9
 #: Place sources that teach the tables. Not ``sro-taluk`` / ``city-taluk`` /
-#: ``pin-taluk`` / ``district-sound`` / ``neighbour-taluk``: those are the
+#: ``pin-taluk`` / ``district-sound`` / ``district-fuzzy`` / ``neighbour-taluk``: those are the
 #: tables' own answers.
 LEARN_FROM = frozenset({"taluk", "district", "state", "tamil-sound",
                         "human-alias", "osm-tamil", "osm-english"})
