@@ -53,10 +53,14 @@ openai>=2.0,<3
 # are adapted.
 fastapi>=0.115,<0.137
 uvicorn[standard]>=0.30,<1.0
-pydantic-ai>=2.8,<3
+# File/Form parsing for the dossier upload route (api/dossier/router.py).
+# FastAPI fails at import without it; it used to arrive only through
+# pydantic-ai's dependency tree.
+python-multipart>=0.0.9,<1
 
-# Observability — Logfire/OpenTelemetry tracing of the agent + LLM + tool
-# calls. Tracing is a no-op unless LOGFIRE_TOKEN is set (see api/telemetry.py),
+# Observability — Logfire/OpenTelemetry tracing of requests, model calls
+# (httpx) and the app's structured log lines. Tracing is a no-op unless
+# LOGFIRE_TOKEN is set (see api/telemetry.py),
 # but the package is installed in prod so the instrumentation is available.
 # The [fastapi] extra adds per-request root spans (opentelemetry asgi/fastapi).
 logfire[fastapi,httpx]>=4,<5

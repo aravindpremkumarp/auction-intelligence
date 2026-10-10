@@ -319,11 +319,13 @@ def test_the_gate_diagnostics_reach_the_response(monkeypatch):
         _teardown()
 
 
-def test_the_other_three_chat_surfaces_are_untouched():
-    """The clean slate was never licence to disturb what already works."""
+def test_the_admin_chat_surfaces_are_still_mounted():
+    """The clean slate was never licence to disturb what already works. The
+    pydantic-ai `/chat` + `/chat/stream` are retired on purpose; the two
+    admin comparison loops stay."""
     from api.main import app
 
     paths = {r.path for r in app.routes}
-    for path in ["/chat", "/chat/stream", "/chat/v2", "/chat/v2/stream",
-                 "/chat/deep", "/chat/deep/stream"]:
+    for path in ["/chat/v2", "/chat/v2/stream", "/chat/deep", "/chat/deep/stream"]:
         assert path in paths, f"{path} disappeared"
+    assert "/chat/stream" not in paths

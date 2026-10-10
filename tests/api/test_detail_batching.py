@@ -93,36 +93,3 @@ def test_single_id_helper_still_returns_one_record(monkeypatch) -> None:
     out = ct.get_auction_detail("42")
     assert out is not None and out["auction_id"] == "42"
     assert ct.get_auction_detail("missing") is None
-
-
-def test_agent_tool_accepts_str_or_list(monkeypatch) -> None:
-    """The agent-facing wrapper normalizes both arities onto the batch call.
-
-    conftest replaces `api.agent` in sys.modules with a stub (so importing
-    api.main never builds a real OpenRouter client), so load the real module
-    under an alias — same trick as test_deferred_capabilities.py.
-    """
-    import importlib.util
-    import sys
-    from pathlib import Path
-
-    if "api_agent_real" in sys.modules:
-        agent_mod = sys.modules["api_agent_real"]
-    else:
-        spec = importlib.util.spec_from_file_location(
-            "api_agent_real",
-            Path(__file__).resolve().parents[2] / "api" / "agent.py",
-        )
-        agent_mod = importlib.util.module_from_spec(spec)
-        sys.modules["api_agent_real"] = agent_mod
-        spec.loader.exec_module(agent_mod)
-
-    seen: list[list[str]] = []
-    monkeypatch.setattr(
-        agent_mod.T, "get_auction_details",
-        lambda ids: seen.append(list(ids)) or {"results": [], "returned": 0},
-    )
-    fn = agent_mod.get_auction_detail
-    fn("7")
-    fn(["7", "8"])
-    assert seen == [["7"], ["7", "8"]]

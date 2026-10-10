@@ -133,19 +133,3 @@ def test_expired_token_returns_401() -> None:
     body = _b64.urlsafe_b64encode(_json.dumps(claims).encode()).rstrip(b"=").decode()
     r = _client().get("/auth/me", headers={"Authorization": f"Bearer test-{body}"})
     assert r.status_code == 401
-
-
-def test_chat_gated_modes_require_login() -> None:
-    """Deep Research requires a verified account. `report` was archived
-    (modes/_archive/, 2026-07) — as an unknown mode it must NOT 401; it
-    falls back to plain ask, so stale clients degrade gracefully instead
-    of being locked out."""
-    _reset_store()
-    c = _client()
-    # Anonymous → 401 for the gated mode
-    r = c.post("/chat", json={"message": "hi", "mode": "deep-research"})
-    assert r.status_code == 401
-    # Archived/unknown mode → not gated (proceeds as plain ask; any
-    # non-401 outcome is acceptable here — the agent itself is stubbed).
-    r = c.post("/chat", json={"message": "hi", "mode": "report"})
-    assert r.status_code != 401

@@ -142,11 +142,6 @@ def test_both_endpoints_are_registered():
     assert {"/chat/v2", "/chat/v2/stream"} <= paths
 
 
-def test_v1_endpoints_are_untouched():
-    paths = {r.path for r in app.routes if hasattr(r, "path")}
-    assert {"/chat", "/chat/stream"} <= paths
-
-
 # ── the blocking endpoint ───────────────────────────────────────────────────
 
 def test_answer_and_usage(client, stub_turn):
@@ -398,7 +393,7 @@ def test_client_disconnect_cancels_the_agent_turn(client, monkeypatch):
 
     async def drive():
         from api.chat.v2.router import _stream_turn
-        from api.chat.router import _sse
+        from api.chat.sse import sse as _sse
 
         ctx = {"filters": {}, "last_ids": [], "last_total_count": None,
                "last_question": "", "last_entities": {},

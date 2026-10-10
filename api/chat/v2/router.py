@@ -3,17 +3,17 @@ api/chat/v2/router.py
 ---------------------
 `POST /chat/v2` and `POST /chat/v2/stream`.
 
-/chat and /chat/stream are frozen on pydantic-ai and are not touched by any
-of this. v2 owns its own contract, whose one substantive difference is that
-the **scope object replaces `message_history`**: the client echoes back a
+v2 owns its own contract, whose one substantive difference from the retired
+pydantic-ai `/chat` is that the **scope object replaces `message_history`**:
+the client echoes back a
 small dict instead of a transcript that grows every turn and is re-billed on
 each one.
 
-Two things are deliberately kept identical to v1:
+Two things are deliberately kept identical to the other chat endpoints:
 
 * the **SSE event vocabulary** (`status` / `delta` / `final` / `error` plus
-  keepalive comments), reusing `_sse` and `_with_heartbeat` from the v1
-  router, so the browser needs no new event handling;
+  keepalive comments), reusing `sse` and `with_heartbeat` from
+  `api/chat/sse.py`, so the browser needs no new event handling;
 * the **artifact shape**, so `extractResultsFromArtifacts`, `setPanelSource`
   and the whole matches-panel path in `web/app.js` work unchanged.
 
@@ -54,9 +54,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Modes that stay on v1. `deep-research` runs a long multi-step investigation
-# the tiered loop is not shaped for; rather than half-support it, v2 rejects
-# it so the client keeps that mode on /chat.
+# Modes the tiered loop refuses. `deep-research` runs a long multi-step
+# investigation a plan-execute-synthesize shape has nowhere to put; rather
+# than half-support it, v2 rejects it (400). The name predates the retirement
+# of the pydantic-ai `/chat` ("v1") that used to take these turns; agent3 now
+# covers a deep pass on one property with its `diligence` skill.
 V1_ONLY_MODES = {"deep-research"}
 
 
@@ -173,10 +175,10 @@ async def chat_v2(request: Request, req: ChatV2Request,
 async def chat_v2_stream(request: Request, req: ChatV2Request,
                          user: UserOut = Depends(get_current_admin)):
     ctx = await _prepare(request, req, user)
-    from api.chat.router import _sse, _with_heartbeat
+    from api.chat.sse import sse, with_heartbeat
 
     return StreamingResponse(
-        _with_heartbeat(_stream_turn(req, ctx, _sse)),
+        with_heartbeat(_stream_turn(req, ctx, sse)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

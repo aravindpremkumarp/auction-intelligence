@@ -3,9 +3,10 @@ tests/api/test_chat_v2_tools.py
 -------------------------------
 Two claims worth pinning about the v2 tool surface:
 
-  * tool NAMES match v1 exactly, so the golden catalogue scores v2 with the
-    same tool-trajectory assertions and no alias map (the spike needed one,
-    and it hid a real routing difference);
+  * tool NAMES match the golden catalogue exactly, so it scores v2 with
+    tool-trajectory assertions and no alias map (the spike needed one, and it
+    hid a real routing difference). With the pydantic-ai agent retired, this
+    is the check that keeps `evals/cases.py::KNOWN_TOOLS` honest;
   * the enum values the planner reads are RENDERED from the same constants
     the tools validate against, so a new enum cannot drift out of the prompt.
     The first narrowing run failed precisely because the planner put a
@@ -91,17 +92,6 @@ def test_iso_string_coercion():
     assert tools._dt("2026-08-20T00:00:00Z") == datetime(2026, 8, 20, tzinfo=timezone.utc)
     already = datetime(2026, 8, 20, tzinfo=timezone.utc)
     assert tools._dt(already) is already
-
-
-def test_tools_do_not_use_the_pydantic_ai_splitter():
-    """`split_ui_overflow` returns a pydantic-ai ToolReturn, which is
-    meaningless outside v1's agent. v2 splits the UI rows in the executor
-    instead, so the model-visible result and the panel rows are separated
-    exactly once."""
-    import inspect
-
-    source = inspect.getsource(tools)
-    assert "split_ui_overflow(" not in source.replace("split_ui_overflow`", "")
 
 
 def test_detail_batch_truncation_is_reported_not_silent(monkeypatch):

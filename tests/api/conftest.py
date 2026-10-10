@@ -1,7 +1,7 @@
 """
 tests/api/conftest.py
 ---------------------
-Shared fixtures. Stubs Neo4j + agent imports so api.main can be imported
+Shared fixtures. Stubs Neo4j so api.main can be imported
 without live credentials, and stubs Supabase JWT verification so tests can
 mint fake bearer tokens without contacting a real Supabase project.
 """
@@ -34,42 +34,6 @@ os.environ.setdefault("AUTH_ENABLED", "true")
 # on for the test suite so the /dossiers router is mounted and its contract
 # tests exercise real routes.
 os.environ.setdefault("DOSSIERS_ENABLED", "true")
-
-
-def _install_stub_agent() -> None:
-    """Replace api.agent with a stub so importing api.main doesn't build a real agent.
-
-    Idempotent for the same reason as the Neo4j stub below — this file can be
-    executed twice, and a monkeypatch applied to the first stub must not be
-    silently discarded by a second install.
-    """
-    if getattr(sys.modules.get("api.agent"), "build_chat_run_overrides", None) is not None:
-        return
-    mod = types.ModuleType("api.agent")
-
-    class ChatDeps:  # noqa: D401
-        # Retain whatever the router puts on the deps (active_filters,
-        # panel_auction_ids, mode, …) so tests can assert it was forwarded to
-        # agent.run without building the real (network-y) agent.
-        def __init__(self, *args, **kwargs):
-            self.__dict__.update(kwargs)
-
-    class _Agent:
-        async def run(self, *args, **kwargs):  # pragma: no cover - not exercised
-            raise RuntimeError("stub agent")
-
-    def build_chat_run_overrides(model_name=None, reasoning_effort=None):
-        # Stub: return no run overrides so tests that monkeypatch `agent` with a
-        # TestModel-backed or fake agent keep using that agent's own model
-        # instead of a real OpenRouter model object. The real implementation
-        # (api/agent.py) returns {"model": ..., "model_settings": ...}; the
-        # model-selection *logic* is tested via api.model_selection directly.
-        return {}
-
-    mod.ChatDeps = ChatDeps
-    mod.agent = _Agent()
-    mod.build_chat_run_overrides = build_chat_run_overrides
-    sys.modules["api.agent"] = mod
 
 
 def _install_stub_neo4j_client() -> None:
@@ -380,6 +344,48 @@ def auth_header(
     return {"Authorization": f"Bearer test-{body}"}
 
 
-_install_stub_agent()
+
+class _Agent3Turn:
+    """The fields `api/agent3/router.py` reads off a finished turn."""
+
+    def __init__(self, answer: str = "ok") -> None:
+        self.answer = answer
+        self.panel_rows: list = []
+        self.auction_ids: list = []
+        self.skills_loaded: list = []
+        self.model_calls = 1
+        self.tool_calls = 0
+        self.seconds = 0.0
+        self.usage: dict = {}
+        self.gate_repairs = 0
+        self.gate_repaired: list = []
+        self.gate_findings: dict = {}
+
+
+def stub_agent3_turn(monkeypatch, captured: dict | None = None) -> None:
+    """Make `POST /chat/agent3` answer instantly without a model or Neo4j.
+
+    Only the loop, the checkpointer and the thread-ownership write are
+    stubbed. The quota and the tier/model gating run for real, which is what
+    the quota, rate-limit and model-selection tests exist to check. Pass
+    `captured` to record the keyword arguments the loop was called with
+    (`model_name`, `reasoning_effort`, `thread_id`).
+    """
+    import api.agent3.loop as loop
+    from api.agent3 import router as agent3_router
+
+    async def fake_run_turn(message, **kw):
+        if captured is not None:
+            captured.update(kw, message=message)
+        return _Agent3Turn()
+
+    async def claims(thread_id, key):
+        return True
+
+    monkeypatch.setattr(loop, "run_turn", fake_run_turn)
+    monkeypatch.setattr(agent3_router, "_saver", lambda: object())
+    monkeypatch.setattr(agent3_router.ownership, "claim", claims)
+
+
 _install_stub_neo4j_client()
 _install_stub_supabase_jwt()
