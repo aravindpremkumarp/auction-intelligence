@@ -12,28 +12,35 @@ stays always-on (see api/agent.py).
 conftest replaces `api.agent` in sys.modules with a stub (so importing
 api.main never builds the real OpenRouter client), so this file loads the
 real module under an alias via importlib. The graph/tool layer underneath is
-the conftest neo4j stub, and every run here uses TestModel/FunctionModel —
-no network.
+the conftest neo4j stub, and every run here uses TestModel, FunctionModel or
+OpenAIChatModel over an httpx MockTransport — no network.
 
-TestModel is representative of production visibility: like the OpenRouter
-DeepSeek models (OpenAI Chat Completions API), it has no native tool-search
-surface, so pydantic-ai drops undiscovered deferred tools from the wire and
-exposes the local `load_capability` / `search_tools` framework tools instead.
-(FunctionModel is NOT representative of visibility — its profile claims
-native tool search, so deferred tools stay on the wire flagged for the
-provider to hide — but its load/replay mechanics are identical, so it drives
-the scripted load_capability turns below.)
+Visibility is read off the wire: the request body the production model class
+(OpenAIChatModel — OpenRouter DeepSeek, Chat Completions, no native tool
+search) would POST, captured by an httpx MockTransport. pydantic-ai drops
+undiscovered deferred tools there and exposes the local `load_capability`
+framework tool instead. TestModel stopped being a proxy for this in
+pydantic-ai 2.3x: it now receives deferred tools flagged `defer_loading` and
+leaves hiding them to the provider adapter, so its tool list says nothing
+about what production sends.
+(FunctionModel is NOT representative of visibility either, but its
+load/replay mechanics are identical, so it drives the scripted
+load_capability turns below.)
 """
 from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
+import httpx
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -56,17 +63,31 @@ def _real_agent_module():
 
 
 def _visible_tools(message_history=None) -> set[str]:
-    """Run one no-tool-call turn on TestModel and return the function-tool
-    names that reached the model request."""
+    """Run one turn on the production model class against a mock endpoint and
+    return the tool names in the request body it would send."""
     mod = _real_agent_module()
-    model = TestModel(call_tools=[])
+    bodies: list[dict] = []
+
+    def endpoint(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "id": "x", "object": "chat.completion", "created": 0, "model": "m",
+            "choices": [{"index": 0, "finish_reason": "stop",
+                         "message": {"role": "assistant", "content": "ok"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        })
+
+    model = OpenAIChatModel("deepseek/test", provider=OpenAIProvider(
+        api_key="test", base_url="https://openrouter.test/v1",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(endpoint)),
+    ))
     asyncio.run(
         mod.agent.run(
             "hello", deps=mod.ChatDeps(), model=model,
             message_history=message_history,
         )
     )
-    return {t.name for t in model.last_model_request_parameters.function_tools}
+    return {t["function"]["name"] for t in bodies[-1].get("tools", [])}
 
 
 def _run_with_cypher_load():
