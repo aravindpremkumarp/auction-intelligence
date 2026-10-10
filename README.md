@@ -74,7 +74,7 @@ Live corpus size is published at `GET /stats`. On 2026-09-12 the graph held
               ┌─────────────────────────────────────────────────┴──────────┐
               │              Render — FastAPI (api/main.py)                 │
               │  public: health · properties · chat/agent3 · feedback ·     │
-              │          alerts · chat (v1) · chat/v2 · chat/deep           │
+              │          alerts · chat/v2 · chat/deep (admin)               │
               │  auth-gated: auth · billing · watchlist · conversations ·   │
               │              review · review/extraction · review/spotcheck ·│
               │              social · dossiers (flag)                       │
@@ -92,9 +92,11 @@ Live corpus size is published at `GET /stats`. On 2026-09-12 the graph held
 
 - **Backend** — FastAPI. `api/main.py` is a thin composition root (CORS,
   security headers, rate limit, exception handlers, static routes); logic
-  lives in focused routers. Chat is `api/agent3/`. The earlier loops
-  (`api/agent.py` pydantic-ai v1, `api/chat/v2` tiered, `api/chat/deep` Deep
-  Agents) stay mounted for evals and the admin `/lab` comparison surface.
+  lives in focused routers. Chat is `api/agent3/`, for both the main chat
+  and the property page's "ask about this property" box. Two earlier loops
+  (`api/chat/v2` tiered, `api/chat/deep` Deep Agents) stay mounted for evals
+  and the admin `/lab` comparison surface. The original pydantic-ai chat is
+  removed (#532).
 - **Frontend** — single-page app, **no build step**: vanilla JS + hand-written
   CSS (`web/index.html`, `app.js`, `styles.css`, `auth.js`, `billing.js`,
   `dossiers.js`, `lab.js`, `consent.js`). Separate pages for admin
@@ -122,15 +124,16 @@ Live corpus size is published at `GET /stats`. On 2026-09-12 the graph held
 api/            FastAPI composition root + routers
   agent3/       THE chat agent: tools, skills/, instructions.md, loop, gates,
                 manifest (turn-owned property cards), chatlog, ownership
-  chat/         v1 router (pydantic-ai), gating (quota + model tiers),
+  chat/         gating (quota + model tiers), sse.py (stream framing),
+                panel sync, /modes · /suggestions · /chat/models router,
                 v2/ tiered loop, deep/ Deep Agents loop — admin / eval only
-  agent.py      pydantic-ai v1 agent (used by evals + deep-research mode)
   review/       enrichment review: queues, extraction.py, spotcheck.py,
                 blocks (annotator), grounding, markdown_match
   properties/ health/ feedback/ alerts/ auth/ billing/ watchlist/
   conversations/ social/ dossier/
   entitlements.py  places.py  canonical.py  policy.py  checkpointer.py
-  neo4j_client.py  telemetry.py  observability.py  tools/ (v1 tools)
+  neo4j_client.py  telemetry.py  observability.py  tools/ (Cypher + web
+                tools the v2 and deep loops call)
 pipeline/       Notice enrichment: OCR clients (datalab, mineru), notice
                 twins + stitching, classify_notice, LangExtract
                 (langextract_examples, load_extractions, extract_entry),
@@ -143,7 +146,8 @@ sources/        Portal adapters (eauctionsindia, baanknet, bankeauctions),
 scrapers/       Selenium scraper for eauctionsindia (local only)
 scripts/        Loaders, R2 upload, resolvers, SEO generators, OG cards,
                 backfills, audits, run_weekly_pipeline.py
-modes/          v1 prompt files: _shared.md + deep-research.md (+ _archive/)
+modes/          _shared.md (graph brief the v2 and deep loops read),
+                deep-research.md, _archive/
 evals/          Golden questions, conversations, agent3 tool catalogue,
                 LangExtract gold set + eval, ContextGem A/B, gold sprint
 marketing/      dashboard.html (marketing system of record), templates/
@@ -262,11 +266,12 @@ read another's conversation.
 
 | Loop | Endpoint | Memory | Status |
 | --- | --- | --- | --- |
-| v1 pydantic-ai (`api/agent.py`, `modes/_shared.md`) | `POST /chat`, `/chat/stream` | transcript round-tripped by client | Retired from the UI; still powers `evals/run_golden`, `run_conversations`, and the `deep-research` mode spec |
 | Tiered plan → execute → synthesize (`api/chat/v2`) | `POST /chat/v2` | `scope` summary | Admin only, `/lab` |
 | Deep Agents ReAct (`api/chat/deep`) | `POST /chat/deep` | Neo4j transcript | Admin only, `/lab` |
 
-The A/B that chose agent3 is in `docs/chat-loop-ab-2026-08.md` and
+The first chat, a pydantic-ai agent on `POST /chat`, was removed in #532
+along with the pydantic-ai dependency. The A/B that chose agent3 is in
+`docs/chat-loop-ab-2026-08.md` and
 `docs/auction-deep-agent-2026-08.md` §10 (15.8 s median turn vs 25 s tiered
 and 149 s deep). The UI still offers an **Ask / Deep research** picker; on
 agent3 a deep pass is the `diligence` skill.
@@ -496,8 +501,7 @@ Mounted in `api/main.py`. Selected endpoints:
   `GET /modes`; `GET /suggestions`.
 - `GET|POST /alerts`, `POST /alerts/subscribe` — deadline reminders.
 - `POST /feedback`, `GET /feedback/recent`, `PATCH /feedback/{id}/resolve`.
-- Legacy / admin loops: `POST /chat`, `/chat/stream`, `/chat/v2[/stream]`,
-  `/chat/deep[/stream]`.
+- Admin comparison loops: `POST /chat/v2[/stream]`, `/chat/deep[/stream]`.
 
 **Authenticated** (Supabase JWT)
 
@@ -537,15 +541,19 @@ ruff check .                   # lint (correctness rules only; see pyproject.tom
   set of `tests/pipeline` modules, against an in-memory Neo4j stub. A
   separate `e2e` job runs the live Razorpay test-mode flow against a real
   Neo4j service container and goes red when the `RAZORPAY_*` secrets are
-  missing. `TODOS.md` records one known-red test on `main`.
+  missing. The test job also installs `pydantic-evals` for the eval
+  tooling; `tests/api/test_no_pydantic_ai.py` keeps app code from importing
+  the pydantic-ai it brings along.
 - **Agent evals** (`evals/`):
   - `python -m evals.run_agent3` — the agent3 tool catalogue against the live
     graph (no model; a failure is a tool or data bug). `smoke_agent3.py`
     drives a real model.
   - `python -m evals.run_golden` — single-turn golden questions through the
-    v1 agent, scored on tool trajectory + LLM-as-judge (`golden.yml`, manual).
+    tiered loop (`/chat/v2`), scored on tool trajectory + LLM-as-judge
+    (`golden.yml`, manual).
   - `python -m evals.run_conversations` — multi-turn narrowing, carry-over,
-    no-stale-scope (`golden-conversations.yml`, manual).
+    no-stale-scope, also on the tiered loop (`golden-conversations.yml`,
+    manual).
 - **Extraction evals**:
   - `python -m evals.langextract_eval --reader langextract|v2 --repeats 3` —
     field accuracy against the hand-labelled gold set
