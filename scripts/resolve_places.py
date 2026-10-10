@@ -53,7 +53,7 @@ from collections import Counter, defaultdict
 
 from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
-    Gazetteer, district_sound_place, load_pin_taluks, load_sro_taluks,
+    Gazetteer, district_fuzzy_place, district_sound_place, load_pin_taluks, load_sro_taluks,
     load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
     neighbour_taluk_place, out_of_area,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
@@ -353,7 +353,8 @@ def run(*, dry_run: bool = False) -> dict:
 
         # Then the pieces of a village field holding more than a name, the
         # taluk the sub-registrar office or the notice's PIN code names, the
-        # one village of the district that sounds like it, and the taluks the
+        # one village of the district that sounds like it (then the one spelt
+        # like it, with every in-taluk guard), and the taluks the
         # named one was split from or into — after the verdicts, which outrank
         # them all. Not the portal city: it is a witness, never an answer
         # (lots also read the notice's own town).
@@ -365,6 +366,7 @@ def run(*, dry_run: bool = False) -> dict:
                                pin=property_pin(p.get("description")),
                                pin_taluks=pin_taluks)
         res = district_sound_place(gaz, res, village)
+        res = district_fuzzy_place(gaz, res, village)
         res = neighbour_taluk_place(gaz, res, village, neighbours)
         res = lineage_place(gaz, res, village, taluk, lineage)
         # Last, the town the property's own text calls a town: a property

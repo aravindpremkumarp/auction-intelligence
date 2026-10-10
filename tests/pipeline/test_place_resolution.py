@@ -1383,3 +1383,78 @@ def test_the_lineage_rule_leaves_placed_lots_and_empty_tables_alone():
 def test_no_lineage_table_no_lineage(tmp_path):
     from pipeline.place_resolution import load_taluk_lineage
     assert load_taluk_lineage(tmp_path / "missing.json") == {}
+
+
+# ── One village of the district by spelling, when the notice gave no taluk ───
+
+def _fuzzy_district_gaz():
+    from pipeline.place_resolution import Gazetteer
+    return Gazetteer(
+        districts=["Chennai"],
+        taluks=[("Velacheri", "Chennai"), ("Purasaivakkam", "Chennai"),
+                ("Tambaram", "Chennai"), ("Alangudi", "Chennai")],
+        villages=[("Thiruvanmaiyur", "Velacheri", "Chennai"),
+                  ("Purasawalkam", "Purasaivakkam", "Chennai"),
+                  ("Madambakkam", "Tambaram", "Chennai"),
+                  ("Thiruninravur", "Tambaram", "Chennai"),
+                  ("Thirunindravur", "Alangudi", "Chennai"),
+                  ("Kengarai 1", "Tambaram", "Chennai"),
+                  ("Badur R.F.", "Alangudi", "Chennai"),
+                  ("Veeraraghavapuram", "Tambaram", "Chennai"),
+                  ("Veeraraghavapuram", "Alangudi", "Chennai"),
+                  ("Dasagapatti", "Alangudi", "Chennai")],
+        # a register copy of Thiruvanmaiyur, spelt one letter from the notice's
+        village_copies=[("Tiruvanmiyure", "Velacheri", "Thiruvanmaiyur")])
+
+
+def test_a_village_the_district_holds_once_by_spelling_is_found():
+    gaz = _fuzzy_district_gaz()
+    # the sound rule misses "ai"/"i"; the spelling guards clear it at 96
+    assert gaz.village_by_district_fuzzy("Thiruvanmiyur", "Chennai") == \
+        ("Thiruvanmaiyur", "Velacheri")
+    assert gaz.village_by_district_fuzzy("Puraswalkam", "Chennai") == \
+        ("Purasawalkam", "Purasaivakkam")
+    # the copy "Tiruvanmiyure" scores as high as the original against the
+    # notice's spelling; being the same village it is no runner-up, so the
+    # margin guard does not refuse (the exact search already reads copies)
+
+
+def test_the_spelling_rule_refuses_twins_numbers_forests_initials_and_exact_names():
+    gaz = _fuzzy_district_gaz()
+    # "Thiruninravur" / "Thirunindravur" in two taluks sit within the margin: no guess
+    assert gaz.village_by_district_fuzzy("Thiruniravur", "Chennai") is None
+    # another number is another village
+    assert gaz.village_by_district_fuzzy("Kengarai-2", "Chennai") is None
+    # the village is not its forest
+    assert gaz.village_by_district_fuzzy("Baddur", "Chennai") is None
+    # a different first letter is a different place (Adambakkam is not Madambakkam)
+    assert gaz.village_by_district_fuzzy("Adambakkam", "Chennai") is None
+    # one name in two taluks of the district places nothing, however it is spelt
+    assert gaz.village_by_district_fuzzy("Veeraragavapuram", "Chennai") is None
+    # a score of exactly 90 clears the in-taluk floor but not the district one:
+    # "Dadagapatti" is a Salem locality, not Mettur's Dasagapatti
+    assert gaz.village("Dadagapatti", "Alangudi") == "Dasagapatti"
+    assert gaz.village_by_district_fuzzy("Dadagapatti", "Chennai") is None
+    # an exact name belongs to the exact district search
+    assert gaz.village_by_district_fuzzy("Thiruvanmaiyur", "Chennai") is None
+    assert gaz.village_by_district_fuzzy("Thiruvanmiyur", None) is None
+    assert gaz.village_by_district_fuzzy("", "Chennai") is None
+
+
+def test_the_spelling_rule_only_places_a_notice_that_gave_no_taluk():
+    from pipeline.place_resolution import district_fuzzy_place, resolve_place
+    gaz = _fuzzy_district_gaz()
+    res = resolve_place(gaz, district="Chennai", village="Thiruvanmiyur")
+    assert res["village_status"] == "no-parent-taluk"
+    out = district_fuzzy_place(gaz, res, "Thiruvanmiyur")
+    assert (out["village"], out["taluk"], out["village_status"], out["village_source"]) == \
+        ("Thiruvanmaiyur", "Velacheri", "resolved", "district-fuzzy")
+    # a stated taluk that does not hold it is a different question (unmatched)
+    named = resolve_place(gaz, district="Chennai", taluk="Tambaram", village="Thiruvanmiyur")
+    assert district_fuzzy_place(gaz, named, "Thiruvanmiyur") == named
+    # no district, nowhere to look
+    bare = resolve_place(gaz, village="Thiruvanmiyur")
+    assert district_fuzzy_place(gaz, bare, "Thiruvanmiyur") == bare
+    # already placed: untouched
+    done = {**res, "village": "X", "village_status": "resolved", "village_source": "taluk"}
+    assert district_fuzzy_place(gaz, done, "Thiruvanmiyur") == done

@@ -225,6 +225,18 @@ lands on "Kengarai 1" nor "Badur" on "Badur R.F."; two that sound alike
 cancel out. Checked on placed lots with the taluk hidden: 424 right, 14
 wrong. Both run after the human verdicts and the SRO/town hints.
 
+The sound rule reads "ai" and "i" as two sounds, so "Thiruvanmiyur" never
+meets Thiruvanmaiyur there. What it misses, the **one village of the district
+spelt like it** catches (`district-fuzzy`, `Gazetteer.village_by_district_fuzzy`,
+right after the sound rule, same preconditions): the in-taluk matcher's own
+guards — same first letter, `FUZZY_MARGIN` over the best spelling of another
+village, identical digits — run over the whole district, plus the sound rule's
+shape check and "one village only", under a higher floor
+(`DISTRICT_FUZZY_MIN` = 91 against the in-taluk 90, because both wrong answers
+on the live unplaced lots sat at exactly 90.0). Checked on placed lots with
+the taluk hidden: 522 right, 2 wrong, 715 refused. It placed 44 of the 476
+unplaced no-taluk lots on 2026-10-10.
+
 A village field holding more than a name — "Kanthalur and Pulipakkam",
 "Ambur Municipal Town", "Mathigiri (Kurubatti Ward)" — is split into its
 pieces first (`village_pieces_place`, source `village-pieces`): the words that
