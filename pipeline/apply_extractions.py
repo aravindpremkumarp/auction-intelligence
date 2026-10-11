@@ -1349,7 +1349,7 @@ def write_lot_matches(rows: list[dict]) -> int:
     """
     if not rows:
         return 0
-    written = 0
+    written = flagged = 0
     now_iso = datetime.now(timezone.utc).isoformat()
     for batch in chunked(rows, WRITE_CHUNK):
         for row in batch:
@@ -1415,7 +1415,20 @@ def write_lot_matches(rows: list[dict]) -> int:
                 r.decided_by = 'system:apply_extractions'
         """, {"rows": batch})
         written += len(res) if res else 0
-    missing = len(rows) - written
+        # A lot outside Tamil Nadu is never loaded (promote_extractions
+        # .drop_out_of_area_lots), so its listing gets no edge. Flag it so
+        # api.places.in_service_area keeps hiding it; a listing that does hold
+        # an IS_LOT is decided by that lot, so a stale flag is harmless.
+        dropped = run_query("""
+            UNWIND $rows AS row
+            MATCH (d:Document {filename: row.filename})
+            WHERE row.lot_key IN coalesce(d.out_of_area_lot_keys, [])
+            MATCH (a:AuctionProperty {auction_id: row.aid})
+            SET a.notice_out_of_area = true
+            RETURN a.auction_id AS aid
+        """, {"rows": batch})
+        flagged += len(dropped) if dropped else 0
+    missing = len(rows) - written - flagged
     if missing:
         # Not a silent loss: after Phase 4 the edge IS the resolution, so a
         # row whose :Lot does not exist yet is a listing left UNRESOLVED, not

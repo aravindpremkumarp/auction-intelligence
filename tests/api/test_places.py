@@ -53,7 +53,8 @@ def test_the_lot_a_listing_is_decides_its_service_area() -> None:
     flag; the listing's flag is read only when no IS_LOT names a lot."""
     expr = in_service_area("p")
     assert "MATCH (p)-[:IS_LOT]->(_oa:Lot) WHERE _oa.out_of_area = true" in expr
-    assert "coalesce(p.out_of_area, false) AND NOT EXISTS { MATCH (p)-[:IS_LOT]->(:Lot) }" in expr
+    assert ("(coalesce(p.out_of_area, false) OR coalesce(p.notice_out_of_area, false)) "
+            "AND NOT EXISTS { MATCH (p)-[:IS_LOT]->(:Lot) }") in expr
     assert expr.startswith("NOT (")
 
 
