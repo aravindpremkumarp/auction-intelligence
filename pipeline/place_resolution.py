@@ -1657,6 +1657,82 @@ def neighbour_taluk_place(gaz: "Gazetteer", res: dict, village: str | None,
             "village_source": "neighbour-taluk"}
 
 
+# ── Greater Chennai ─────────────────────────────────────────────────────────
+# Chennai district took villages from Kancheepuram and Tiruvallur in 2018, and
+# notices still name whichever taluk the bank's file carries — the old one, the
+# corporation zone, the sub-registrar office. The register files Noombal under
+# Poonamallee (Tiruvallur); notices write "Noombal, Maduravoyal Taluk, Chennai".
+# Neither neighbour_taluk_place nor village_in_district can see it: the answer
+# sits in another district. So within these four districts the village name is
+# allowed to decide on its own, when exactly one village of the four carries it.
+
+METRO_DISTRICTS = ("Chennai", "Chengalpattu", "Kancheepuram", "Tiruvallur")
+METRO_SOURCE = "metro-unique"
+#: Where an answer may land: Chennai district plus the suburban taluks around
+#: it. The name must still be unique across all four districts, but a match in
+#: Cheyyur or Maduranthagam for a Chennai notice is a namesake, not the place.
+METRO_CORE_TALUKS = frozenset({
+    "Alandur", "Ambattur", "Aminjikarai", "Ayanavaram", "Egmore", "Guindy",
+    "Kolathur", "Madhavaram", "Maduravoyal", "Mambalam", "Mylapore", "Perambur",
+    "Purasaivakkam", "Sholinganallur", "Thiruvottiyur", "Tondiarpet", "Velacheri",
+    "Avadi", "Poonamallee", "Ponneri", "Pallavaram", "Tambaram", "Vandalur",
+    "Kundrathur", "Sriperumbudur", "Thiruporur", "Chengalpattu",
+})
+
+
+def metro_place(gaz: "Gazetteer", res: dict, village: str | None,
+                district_hint: str | None = None) -> dict:
+    """``res`` placed by its village name alone across :data:`METRO_DISTRICTS`,
+    when the notice is in one of them and its taluk did not hold the village
+    (``unmatched``) or could not be read (``no-parent-taluk``).
+
+    Exact fold only (:func:`normalize_place`) and only when exactly one village
+    of the four districts carries the name: no fuzzy or sound match at this
+    scope, a name the register holds twice in one taluk is refused, and so is a
+    census-town row or a name that is also a taluk. Source ``metro-unique``."""
+    if (res.get("village") or res.get("village_parts") or not village
+            or res.get("village_status") not in ("unmatched", "no-parent-taluk")):
+        return res
+    district = res.get("district") or (gaz.district(district_hint) if district_hint else None)
+    if district not in METRO_DISTRICTS:
+        return res
+    key = normalize_place(village)
+    if not key:
+        return res
+    hits = {(v, t, d) for d in METRO_DISTRICTS
+            for v, t in (gaz._v_by_district.get(d) or {}).get(key, ())}
+    if len(hits) != 1:
+        return res
+    (found, taluk, found_district), = hits
+    if (taluk not in METRO_CORE_TALUKS
+            or (taluk, key) in gaz._v_ambiguous or gaz.census_town_twin(village, taluk)
+            or any(key in gaz._t_by_district.get(d, {}) for d in METRO_DISTRICTS)
+            or _metro_near_twin(gaz, key)):
+        return res
+    return {**res, "district": found_district, "taluk": taluk, "village": found,
+            "village_parts": [], "village_status": "resolved",
+            "village_source": METRO_SOURCE}
+
+
+#: Below FUZZY_MIN on purpose: "Varadharajapuram" (Poonamallee) and
+#: "Varatharajapuram" (Kundrathur) are two villages, and notices spell one as
+#: the other. Any other metro name this close makes the name not enough.
+METRO_TWIN_MIN = 85.0
+
+
+def _metro_near_twin(gaz: "Gazetteer", key: str) -> bool:
+    """Does another village of :data:`METRO_DISTRICTS` have a name this close?"""
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return True  # no guard, no answer
+    for d in METRO_DISTRICTS:
+        for other in (gaz._v_by_district.get(d) or {}):
+            if other != key and fuzz.ratio(key, other) >= METRO_TWIN_MIN:
+                return True
+    return False
+
+
 # ── Taluks split since 2011 ──────────────────────────────────────────────────
 # Notices still name the taluk a village was in before Tamil Nadu split it:
 # "Dindigul" for Dindigul East or West, "Chengalpattu" for land now in

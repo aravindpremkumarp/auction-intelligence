@@ -1458,3 +1458,60 @@ def test_the_spelling_rule_only_places_a_notice_that_gave_no_taluk():
     # already placed: untouched
     done = {**res, "village": "X", "village_status": "resolved", "village_source": "taluk"}
     assert district_fuzzy_place(gaz, done, "Thiruvanmiyur") == done
+
+
+# ── Greater Chennai: one village of the four districts carries the name ─────
+
+def _metro() -> Gazetteer:
+    return Gazetteer(
+        districts=["Chennai", "Tiruvallur", "Kancheepuram", "Chengalpattu"],
+        taluks=[("Maduravoyal", "Chennai"), ("Poonamallee", "Tiruvallur"),
+                ("Kundrathur", "Kancheepuram"), ("Cheyyur", "Chengalpattu")],
+        villages=[("Noombal", "Poonamallee", "Tiruvallur"),
+                  ("Varadharajapuram", "Poonamallee", "Tiruvallur"),
+                  ("Varatharajapuram", "Kundrathur", "Kancheepuram"),
+                  ("Andar Kuppam", "Cheyyur", "Chengalpattu"),
+                  ("Karambakkam", "Maduravoyal", "Chennai")],
+    )
+
+
+def _unmatched(district="Chennai", taluk="Maduravoyal"):
+    return {"district": district, "taluk": taluk, "village": None,
+            "village_parts": [], "village_status": "unmatched",
+            "village_source": None}
+
+
+def test_metro_place_crosses_district_for_a_unique_name():
+    from pipeline.place_resolution import metro_place
+    out = metro_place(_metro(), _unmatched(), "Noombal")
+    assert (out["village"], out["taluk"], out["district"]) == \
+        ("Noombal", "Poonamallee", "Tiruvallur")
+    assert out["village_source"] == "metro-unique"
+
+
+def test_metro_place_refuses_a_near_twin():
+    """Two villages one letter apart: the notice's spelling cannot pick."""
+    from pipeline.place_resolution import metro_place
+    out = metro_place(_metro(), _unmatched(), "Varadharajapuram")
+    assert out["village"] is None
+
+
+def test_metro_place_refuses_a_namesake_outside_the_core_taluks():
+    from pipeline.place_resolution import metro_place
+    out = metro_place(_metro(), _unmatched("Tiruvallur", "Poonamallee"), "Andarkuppam")
+    assert out["village"] is None
+
+
+def test_metro_place_stays_out_of_other_districts_and_settled_lots():
+    from pipeline.place_resolution import metro_place
+    assert metro_place(_metro(), _unmatched("Madurai", "Madurai North"),
+                       "Noombal")["village"] is None
+    skipped = {**_unmatched(), "village_status": "not-a-revenue-village"}
+    assert metro_place(_metro(), skipped, "Noombal") is skipped
+
+
+def test_metro_place_reads_the_notice_district_when_none_resolved():
+    from pipeline.place_resolution import metro_place
+    res = {**_unmatched(None, None), "village_status": "no-parent-taluk"}
+    out = metro_place(_metro(), res, "Noombal", "Chennai")
+    assert out["village"] == "Noombal"

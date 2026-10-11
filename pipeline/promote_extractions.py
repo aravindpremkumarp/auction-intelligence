@@ -69,7 +69,7 @@ from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_fuzzy_place, district_sound_place, load_pin_taluks, load_sro_taluks,
     load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
-    neighbour_taluk_place, out_of_area,
+    metro_place, neighbour_taluk_place, out_of_area,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
@@ -436,6 +436,9 @@ def lot_place(rec: dict) -> dict:
     # still names the taluk as it was (place_resolution.lineage_place).
     hinted = lineage_place(gaz, hinted, loc.get("village"), loc.get("taluk"),
                            taluk_lineage())
+    # Then, around Chennai, the one village of the four districts carrying the
+    # name, whichever taluk the notice wrote (place_resolution.metro_place).
+    hinted = metro_place(gaz, hinted, loc.get("village"), loc.get("district"))
     # Last, the town the lot's own text calls a town ("Villupuram Town",
     # "Ponneri Municipality"): a property inside a town owes no village, and a
     # town inside one taluk gives the taluk the notice left out.
