@@ -22,25 +22,29 @@ One endpoint, plain form POSTs, no login and no captcha — but a session cookie
 (HttpOnly, set on the first GET) and a Spring ``_csrf`` token from
 ``<meta name="_csrf">``::
 
-    GET  /portal/webHP                                  -> cookie + _csrf, district <select>
+    GET  /portal/webHP                                  -> cookie + _csrf (page in Tamil)
+    POST /portal/webHP?requestType=ApplicationRH&actionVal=homePage&screenId=114
+                      &UserLocaleID=en&_csrf=T          -> English page, district <select>
     POST /portal/webHP?requestType=ApplicationRH&actionVal=getSroOptionByDistrict
                       &screenId=7000054&districtId=D      body: _csrf=T
          -> "<option value='20051'>Adayar</option>..."   (loose tags, not XML)
     POST /portal/webHP?requestType=ApplicationRH&actionVal=getVillageOptionBySro
                       &fromHomeScreen=1&screenId=7000054&sroId=S&stSurvey=1
          -> "<option value='1'>Adayar</option>...&Chennai"  (trailing "&<district>")
-    POST /portal/webHP?requestType=ApplicationRH&actionVal=criteriaSearch
-                      &screenId=7000054&fromHome=1&_csrf=T
-         body: zoneName=<district>&sroName=<sro>&villageName=<village>
-               &searchCriteria=1&txt_SearchCriteria=<term>&cmb_reg_village=<id>&_csrf=T
-         -> HTML table: Sr.No | Street Name | Guideline Value (sq ft) |
-                        Guideline Value (sq m) | Land Classification |
-                        Effective Start Date | G.O.
+    POST /portal/webHP?requestType=ApplicationRH&actionVal=listAllStreet&fromHome=1
+                      &villageIdAllStreet=<id>&screenId=7000054&_csrf=T[&d-NNNN-p=<page>]
+         body: villageIdAllStreet=<id>&zoneName=<district>&sroName=<sro>
+               &villageName=<village>&villageId=<id>&_csrf=T
+         -> "96 items found, displaying 1 to 10." + <table id="surveyTable">:
+            Sr.No | Street Name | Guideline Value (British Value) |
+            Guideline Value (Metric Value) | Land Classification |
+            Effective Start Date | G.O.Download
+            10 rows a page; the page links carry the displaytag page parameter
+            ``d-NNNN-p``, read from the reply.
 
-The street field has no autocomplete and the search is a *contains* match, so
-streets are listed by searching a few common letters (``--terms``) and taking
-the union. A term whose reply looks paginated or capped is reported, never
-silently trusted.
+That is the page's "List All Street" button. (Its street search, actionVal=
+criteriaSearch, returns only the first 10 matches, so it cannot list streets.)
+A village is kept only when the rows collected equal the portal's item count.
 
 OUTPUT (``--out``, default ``data/tnreginet/``; git-ignored)
 ------------------------------------------------------------
@@ -72,7 +76,6 @@ from pathlib import Path
 BASE = "https://tnreginet.gov.in/portal/webHP"
 SCREEN = "7000054"
 DEFAULT_OUT = Path("data/tnreginet")
-DEFAULT_TERMS = ("a", "e", "i", "o", "u")
 LEVELS = ("village", "street")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (auction-intelligence guideline lookup)",
@@ -88,7 +91,9 @@ _SELECT = re.compile(r"<select\b([^>]*)>(.*?)</select>", re.I | re.S)
 _ROW = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.I | re.S)
 _CELL = re.compile(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", re.I | re.S)
 _TAG = re.compile(r"<[^>]+>")
-_PAGED = re.compile(r"pagination|paginate_button|>\s*next\s*<", re.I)
+_TOTAL = re.compile(r"""class=["']pagebanner["'][^>]*>\s*([\d,]+|one|no)\s+items?\s+found""", re.I)
+_PAGE_PARAM = re.compile(r"[?&;](d-\d+-p)=\d+")
+_SURVEY_TABLE = re.compile(r"""<table\b[^>]*id=["']surveyTable["'][^>]*>.*?</table>""", re.I | re.S)
 
 
 class PortalError(RuntimeError):
@@ -127,9 +132,21 @@ def parse_districts(page: str) -> list[tuple[str, str]]:
     raise PortalError("no district <select> (one listing Chennai) on the portal page")
 
 
+def parse_total(body: str) -> int | None:
+    """The "N items found" count over the result table, or None if absent."""
+    m = _TOTAL.search(body or "")
+    if not m:
+        return None
+    n = m.group(1).lower()
+    return {"one": 1, "no": 0}[n] if n in ("one", "no") else int(n.replace(",", ""))
+
+
 def parse_streets(body: str) -> list[dict]:
     """Rows of the result table, keyed by its header. Rows without a street
-    name (headers, "no records") are dropped."""
+    name (headers, "no records") are dropped. The reply also holds a
+    search-criteria table, so the result table is picked by its id."""
+    m = _SURVEY_TABLE.search(body or "")
+    body = m.group(0) if m else body
     rows = [[_text(c) for c in _CELL.findall(r)] for r in _ROW.findall(body or "")]
     rows = [r for r in rows if r]
     if not rows:
@@ -145,7 +162,8 @@ def parse_streets(body: str) -> list[dict]:
     i_street = col("street")
     if i_street is None:
         return []
-    i_ft, i_m = col("feet") or col("sq", "ft"), col("metre") or col("sq", "m")
+    i_ft = next((i for i in (col("british"), col("feet"), col("sq", "ft")) if i is not None), None)
+    i_m = next((i for i in (col("metric"), col("metre"), col("sq", "m")) if i is not None), None)
     i_class, i_date = col("classification"), col("effective")
     out = []
     for r in rows[1:]:
@@ -174,6 +192,14 @@ class TnreginetClient:
         r = self.s.get(self.base, headers={"User-Agent": HEADERS["User-Agent"]}, timeout=60)
         if r.status_code != 200:
             raise PortalError(f"GET portal: HTTP {r.status_code}")
+        # The portal opens in Tamil; its "English" link re-renders the home
+        # page for this session, which gives English district/SRO/village names.
+        csrf = parse_csrf(r.text)
+        r = self.s.post(self.base, params={"requestType": "ApplicationRH", "actionVal": "homePage",
+                                           "screenId": "114", "UserLocaleID": "en", "_csrf": csrf},
+                        data={"_csrf": csrf}, headers={"User-Agent": HEADERS["User-Agent"]}, timeout=60)
+        if r.status_code != 200:
+            raise PortalError(f"switch to English: HTTP {r.status_code}")
         self.page = r.text
         self.csrf = parse_csrf(self.page)
 
@@ -209,14 +235,32 @@ class TnreginetClient:
         return parse_options(self._post({"actionVal": "getVillageOptionBySro", "fromHomeScreen": "1",
                                          "screenId": SCREEN, "sroId": sro_id, "stSurvey": "1"}, {}))
 
-    def streets(self, district: str, sro: str, village: str, village_id: str,
-                term: str) -> tuple[list[dict], bool]:
-        """Streets containing ``term``, and whether the reply looked paginated."""
-        body = self._post({"actionVal": "criteriaSearch", "screenId": SCREEN, "fromHome": "1"},
-                          {"zoneName": district, "sroName": sro, "villageName": village,
-                           "searchCriteria": "1", "txt_SearchCriteria": term,
-                           "cmb_reg_village": village_id}, csrf_in_url=True)
-        return parse_streets(body), bool(_PAGED.search(body))
+    def streets(self, district: str, sro: str, village: str, village_id: str) -> list[dict]:
+        """Every street of a village, all pages. Raises unless the rows
+        collected match the portal's item count."""
+        params = {"actionVal": "listAllStreet", "fromHome": "1",
+                  "villageIdAllStreet": village_id, "screenId": SCREEN}
+        form = {"villageIdAllStreet": village_id, "zoneName": district, "sroName": sro,
+                "villageName": village, "villageId": village_id}
+        body = self._post(params, form, csrf_in_url=True)
+        total = parse_total(body)
+        if total is None:
+            raise PortalError(f"{sro} / {village}: no item count in the street list")
+        rows = parse_streets(body)
+        page_param = _PAGE_PARAM.search(html.unescape(body))
+        page = 1
+        while len(rows) < total:
+            if page_param is None:
+                raise PortalError(f"{sro} / {village}: {total} streets but no page links")
+            page += 1
+            more = parse_streets(self._post({**params, page_param.group(1): str(page)}, form,
+                                            csrf_in_url=True))
+            if not more:
+                raise PortalError(f"{sro} / {village}: page {page} empty at {len(rows)}/{total}")
+            rows += more
+        if len(rows) != total:
+            raise PortalError(f"{sro} / {village}: {len(rows)} rows for {total} items")
+        return rows
 
 
 class Store:
@@ -255,8 +299,8 @@ def _match(name: str, wanted: str | None) -> bool:
 
 def walk(client: TnreginetClient, store: Store, *, level: str = "village",
          district: str | None = "Chennai", sro: str | None = None,
-         village: str | None = None, terms=DEFAULT_TERMS, log=print) -> dict:
-    stats = {"sros": 0, "villages": 0, "streets": 0, "paged_terms": 0}
+         village: str | None = None, log=print) -> dict:
+    stats = {"sros": 0, "villages": 0, "streets": 0, "empty_villages": 0}
     districts = client.districts()
     (store.out / "districts.json").write_text(json.dumps(dict(districts), indent=1, ensure_ascii=False))
     for d_id, d_name in districts:
@@ -286,20 +330,13 @@ def walk(client: TnreginetClient, store: Store, *, level: str = "village",
                 vkey = f"{key}/{v['village_id']}"
                 if store.done("villages_done", vkey):
                     continue
-                found: dict[str, dict] = {}
-                for term in terms:
-                    rows, paged = client.streets(d_name, s_name, v["village"], v["village_id"], term)
-                    if paged:
-                        stats["paged_terms"] += 1
-                        log(f"  WARNING {v['village']} / '{term}': reply looks paginated — "
-                            "streets beyond the first page are missing")
-                    for r in rows:
-                        found.setdefault(r["street"], r)
+                found = client.streets(d_name, s_name, v["village"], v["village_id"])
                 store.append("streets.jsonl", [{**{k: v[k] for k in ("district", "sro_id", "sro",
                                                                       "village_id", "village")}, **r}
-                                               for r in found.values()])
+                                               for r in found])
                 store.mark("villages_done", vkey)
                 stats["streets"] += len(found)
+                stats["empty_villages"] += not found
                 log(f"  {s_name} / {v['village']}: {len(found)} streets")
     return stats
 
@@ -312,14 +349,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="districts whose name contains this (default Chennai; '' for all)")
     ap.add_argument("--sro", help="only SROs whose name contains this")
     ap.add_argument("--village", help="only villages whose name contains this")
-    ap.add_argument("--terms", default=",".join(DEFAULT_TERMS),
-                    help="comma-separated search letters; streets are their union")
     ap.add_argument("--delay", type=float, default=1.5, help="seconds between calls (be polite)")
     ap.add_argument("--out", default=str(DEFAULT_OUT))
     args = ap.parse_args(argv)
     stats = walk(TnreginetClient(delay=args.delay), Store(args.out), level=args.level,
-                 district=args.district or None, sro=args.sro, village=args.village,
-                 terms=tuple(t for t in args.terms.split(",") if t))
+                 district=args.district or None, sro=args.sro, village=args.village)
     print(json.dumps(stats))
     return 0
 
