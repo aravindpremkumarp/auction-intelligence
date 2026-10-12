@@ -103,6 +103,7 @@ def test_item_count_banner():
     assert parse_total('<span class="pagebanner">1,096 items found, displaying 1 to 10.</span>') == 1096
     assert parse_total('<span class="pagebanner">One item found.</span>') == 1
     assert parse_total('<span class="pagebanner">No items found.</span>') == 0
+    assert parse_total('<div id="nothing" align="center"> Nothing Found to Display </div>') == 0
     assert parse_total("<p>nothing</p>") is None
 
 

@@ -92,7 +92,8 @@ _ROW = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.I | re.S)
 _CELL = re.compile(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", re.I | re.S)
 _TAG = re.compile(r"<[^>]+>")
 _TOTAL = re.compile(r"""class=["']pagebanner["'][^>]*>\s*([\d,]+|one|no)\s+items?\s+found""", re.I)
-_PAGE_PARAM = re.compile(r"[?&;](d-\d+-p)=\d+")
+_NOTHING = re.compile(r"""<div[^>]*id=["']nothing["'][^>]*>\s*Nothing Found to Display""", re.I)
+_PAGE_PARAM =re.compile(r"[?&;](d-\d+-p)=\d+")
 _SURVEY_TABLE = re.compile(r"""<table\b[^>]*id=["']surveyTable["'][^>]*>.*?</table>""", re.I | re.S)
 
 
@@ -133,10 +134,11 @@ def parse_districts(page: str) -> list[tuple[str, str]]:
 
 
 def parse_total(body: str) -> int | None:
-    """The "N items found" count over the result table, or None if absent."""
+    """The "N items found" count over the result table, 0 for the portal's
+    "Nothing Found to Display" box, or None if neither is there."""
     m = _TOTAL.search(body or "")
     if not m:
-        return None
+        return 0 if _NOTHING.search(body or "") else None
     n = m.group(1).lower()
     return {"one": 1, "no": 0}[n] if n in ("one", "no") else int(n.replace(",", ""))
 
