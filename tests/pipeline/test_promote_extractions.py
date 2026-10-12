@@ -930,3 +930,18 @@ def test_a_lot_is_placed_by_its_field_s_pieces_or_the_taluk_it_was_split_into(mo
         "taluk": "Sriperumbudur", "village": "Varadarajapuram"}})
     assert (split["village"], split["taluk"], split["status"], split["source"]) == \
         ("Varatharajapuram", "Kundrathur", "resolved", "neighbour-taluk")
+
+
+# ── listing → parcel: the listing's own lot, not its siblings ───────────────
+
+def test_a_listing_links_only_its_own_lots_parcel():
+    """Via the notice alone, a 50-lot notice handed each listing 50 parcels
+    (28,664 of 36,075 edges). Same rule as api.agent3.common.owns_lot."""
+    q = P._LINK_LISTINGS
+    assert "EXISTS { (ap)-[:IS_LOT]->(l) } AS own" in q
+    assert "WHERE own OR NOT EXISTS { (ap)-[:IS_LOT]->(:Lot) }" in q
+
+
+def test_a_listing_without_is_lot_keeps_the_notice_fallback():
+    q = P._LINK_LISTINGS
+    assert "'via_document'" in q and "'via_lot'" in q
