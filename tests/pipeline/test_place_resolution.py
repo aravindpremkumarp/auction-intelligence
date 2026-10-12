@@ -1515,3 +1515,54 @@ def test_metro_place_reads_the_notice_district_when_none_resolved():
     res = {**_unmatched(None, None), "village_status": "no-parent-taluk"}
     out = metro_place(_metro(), res, "Noombal", "Chennai")
     assert out["village"] == "Noombal"
+
+
+# ── Gram panchayats: "one of these", never a single answer ──────────────────
+
+def _gp_gaz() -> Gazetteer:
+    return Gazetteer(
+        districts=["Tiruvallur"],
+        taluks=[("Tiruvallur", "Tiruvallur"), ("Ponneri", "Tiruvallur")],
+        villages=[("Kadambathur", "Tiruvallur", "Tiruvallur"),
+                  ("Kasavanallathur", "Tiruvallur", "Tiruvallur"),
+                  ("Thatchoor", "Ponneri", "Tiruvallur")],
+        gram_panchayats=[("Kadambathur", "Tiruvallur", "Kadambathur"),
+                         ("Kadambathur", "Tiruvallur", "Kasavanallathur"),
+                         ("Andarkuppam", "Ponneri", "Thatchoor"),
+                         # a village LGD lists but the gazetteer does not hold
+                         ("Andarkuppam", "Ponneri", "Nowhere")],
+    )
+
+
+def _unplaced(taluk="Tiruvallur", status="unmatched"):
+    return {"district": "Tiruvallur", "taluk": taluk, "village": None,
+            "village_parts": [], "village_status": status, "village_source": None}
+
+
+def test_panchayat_narrows_to_its_villages():
+    from pipeline.place_resolution import panchayat_place
+    out = panchayat_place(_gp_gaz(), _unplaced(), "Some Hamlet", "Kadambathur Village Panchayat")
+    assert out["village"] is None
+    assert out["village_parts"] == ["Kadambathur", "Kasavanallathur"]
+    assert (out["village_status"], out["village_source"]) == ("one-of-parts", "gram-panchayat")
+
+
+def test_a_one_village_panchayat_is_still_one_of_these():
+    """Agreed policy: the panchayat narrows, it never places."""
+    from pipeline.place_resolution import panchayat_place
+    out = panchayat_place(_gp_gaz(), _unplaced("Ponneri"), "Andarkuppam")
+    assert out["village"] is None and out["village_parts"] == ["Thatchoor"]
+
+
+def test_panchayat_found_across_the_district_when_no_taluk():
+    from pipeline.place_resolution import panchayat_place
+    out = panchayat_place(_gp_gaz(), _unplaced(None, "no-parent-taluk"), "Andarkuppam")
+    assert out["taluk"] == "Ponneri" and out["village_parts"] == ["Thatchoor"]
+
+
+def test_panchayat_union_and_settled_lots_are_left_alone():
+    from pipeline.place_resolution import panchayat_place
+    assert panchayat_place(_gp_gaz(), _unplaced(), None,
+                           "Kadambathur Panchayat Union")["village_parts"] == []
+    skipped = _unplaced(status="not-a-revenue-village")
+    assert panchayat_place(_gp_gaz(), skipped, "Kadambathur") is skipped

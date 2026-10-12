@@ -69,7 +69,7 @@ from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_fuzzy_place, district_sound_place, load_pin_taluks, load_sro_taluks,
     load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
-    metro_place, neighbour_taluk_place, out_of_area,
+    metro_place, neighbour_taluk_place, out_of_area, panchayat_place,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
@@ -259,6 +259,14 @@ def gazetteer() -> Gazetteer:
                     "RETURN v.name AS village, t.name AS taluk, "
                     "       v.village_code AS code",
                     max_rows=50_000, timeout=120.0)],
+                # Gram panchayats (scripts/load_gram_panchayats), which narrow
+                # a lot to "one of these" (place_resolution.panchayat_place).
+                gram_panchayats=[(r["gp"], r["taluk"], r["village"])
+                                 for r in run_read_query(
+                    "MATCH (v:RevenueVillage)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat), "
+                    "      (v)-[:IN_TALUK]->(t:Taluk) "
+                    "RETURN g.name AS gp, t.name AS taluk, v.name AS village",
+                    max_rows=50_000, timeout=120.0)],
             )
             log.info("gazetteer loaded: %d districts, %d taluks, %d villages",
                      len(_GAZ.districts), len(_GAZ.taluks), len(_GAZ.villages))
@@ -439,6 +447,9 @@ def lot_place(rec: dict) -> dict:
     # Then, around Chennai, the one village of the four districts carrying the
     # name, whichever taluk the notice wrote (place_resolution.metro_place).
     hinted = metro_place(gaz, hinted, loc.get("village"), loc.get("district"))
+    # Then the villages of the gram panchayat the notice names — "one of
+    # these", never a single answer (place_resolution.panchayat_place).
+    hinted = panchayat_place(gaz, hinted, loc.get("village"), loc.get("panchayat"))
     # Last, the town the lot's own text calls a town ("Villupuram Town",
     # "Ponneri Municipality"): a property inside a town owes no village, and a
     # town inside one taluk gives the taluk the notice left out.
