@@ -157,6 +157,9 @@ INDEXES = [
     "FOR (l:Locality) ON (l.name_norm)",
     "CREATE INDEX reg_sub_district_norm_idx IF NOT EXISTS "
     "FOR (s:RegSubDistrict) ON (s.name_norm)",
+    # scripts/load_gram_panchayats MERGEs on this
+    "CREATE INDEX gram_panchayat_code_idx IF NOT EXISTS "
+    "FOR (g:GramPanchayat) ON (g.code)",
 
     # promotion bookkeeping: find what still needs promoting / verifying
     "CREATE INDEX lot_verified_idx IF NOT EXISTS "
