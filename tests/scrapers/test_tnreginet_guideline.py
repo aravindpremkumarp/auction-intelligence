@@ -147,3 +147,18 @@ def test_a_short_street_list_raises():
             return Resp('<span class="pagebanner">5 items found.</span>' + TABLE.format(rows=_row("X")))
     with pytest.raises(PortalError):
         _client(Short()).streets("Chennai", "Adayar", "Adayar", "1")
+
+
+def test_a_network_drop_is_retried(monkeypatch):
+    import requests
+    monkeypatch.setattr("scrapers.tnreginet_guideline.time.sleep", lambda *_: None)
+
+    class Flaky(FakeSession):
+        drops = 2
+
+        def post(self, url, params=None, data=None, **kw):
+            if params["actionVal"] == "getSroOptionByDistrict" and self.drops:
+                self.drops -= 1
+                raise requests.ConnectionError("getaddrinfo failed")
+            return super().post(url, params, data, **kw)
+    assert _client(Flaky()).sros("2") == [("20051", "Adayar"), ("20052", "Alandur")]

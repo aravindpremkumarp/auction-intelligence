@@ -212,8 +212,7 @@ class TnreginetClient:
             query = {"requestType": "ApplicationRH", **params}
             if csrf_in_url:
                 query["_csrf"] = self.csrf
-            r = self.s.post(self.base, params=query,
-                            data={**data, "_csrf": self.csrf}, headers=HEADERS, timeout=60)
+            r = self._send(query, {**data, "_csrf": self.csrf})
             if r.status_code == 403 and attempt == 1:
                 self.start()  # expired session or token: one fresh start
                 continue
@@ -221,6 +220,18 @@ class TnreginetClient:
                 raise PortalError(f"{params.get('actionVal')}: HTTP {r.status_code}")
             return r.text
         raise PortalError("unreachable")
+
+    def _send(self, query: dict, data: dict, waits=(10, 30, 60, 120)):
+        """One POST, retried through short network drops (DNS failures and
+        resets seen mid-run from a home connection)."""
+        import requests
+        for wait in (*waits, None):
+            try:
+                return self.s.post(self.base, params=query, data=data, headers=HEADERS, timeout=60)
+            except (requests.ConnectionError, requests.Timeout):
+                if wait is None:
+                    raise
+                time.sleep(wait)
 
     def districts(self) -> list[tuple[str, str]]:
         if not self.page:
