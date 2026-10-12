@@ -1050,7 +1050,7 @@ function gapsHtml(lot){
       ?`${esc(x.cls)} belongs to ${x.in_lot?`lot ${esc(x.in_lot)}`:"another lot"}`
       :`description misses ${esc(x.cls)}`;
     const why=x.kind==="wrong_lot"
-      ?"this detail is tagged to this lot but sits with another lot's description — the lot number is likely wrong"
+      ?"this detail is tagged to this lot but sits in or right after another lot's description — the lot number is likely wrong"
       :"this lot's detail lies outside its description — the description stops short of it";
     return `<span class="kgap${x.kind==="wrong_lot"?" wl":""}" data-fid="${esc(x.field_id||"")}" title="${esc(why)}\n(click to jump to it)">⚠ ${what}: “${esc(snip(x.text))}”</span>`;
   }).join("")+`</div>`;

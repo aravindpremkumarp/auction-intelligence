@@ -251,6 +251,50 @@ def test_the_borrowers_address_is_excused():
     assert cov["lots_excused"] == {"1": {"party_address": ["location"]}}
 
 
+def test_the_fourth_address_in_the_borrower_paragraph_is_excused():
+    """SBI sbi-3-17836800782627: "Borrower Name & Address: … Address.4) Fiat
+    No. F-1, … Near Rajaveni Kalyana Mandapam …" — the lead is 300+ chars
+    before the detail, and one of them is an identifier."""
+    para = ("Borrower Name & Address: Mr. Anandan, S/o. Mr. Chitravelu, "
+            "Address.1) 845, 52nd Street, Mathur, Manali, Chennai-600 068. "
+            "Address.2) No.34, Shankar Flats, Elango Nagar, Padi, Chennai - 600 050. "
+            "Address.3) TNEB, R 35, Ambattur Industrial Road, Chennai - 600 037. "
+            "Address.4) Fiat No. F-1, 1st Floor, Block A, Sivasakthi Nagar, "
+            "Near Rajaveni Kalyana Mandapam, Thirumullaivoyal Village, Chennai - 600 109.")
+    page = para + "\n\nDESCRIPTION OF THE IMMOVABLE PROPERTY: " + FD1
+    ex = [_block(page, FD1),
+          _at(page, "identifier", "Fiat No. F-1", kind="flat"),
+          _at(page, "location", "Near Rajaveni Kalyana Mandapam")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}
+    assert cov["lots_excused"] == {"1": {"party_address": ["identifier", "location"]}}
+
+
+def test_the_borrowers_table_cell_is_a_paragraph_too():
+    """11e90606: a notice laid out as a table keeps the borrower's addresses
+    in one cell, with the lead "Borrower's Name" at the top of the cell."""
+    cell = ("BO: Tiruppur (055810) M/s. ABBABIL TRADERS Borrower's Name: M/s. Abbabil "
+            "Traders, 45, Rainbow Enclave, Mile Kal, Coimbatore South, Coimbatore-641008. "
+            "No.35, TSR Layout, Coimbatore Taluk, Saleevan Street, Ward No.7.")
+    page = ("<table><tr><td>Lot No</td><td>Name of the Borrower</td></tr>"
+            "<tr><td>1</td><td>" + cell + "</td><td>" + FD1 + "</td></tr></table>")
+    ex = [_block(page, FD1), _at(page, "location", "Coimbatore Taluk, Saleevan Street")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}
+    assert cov["lots_excused"] == {"1": {"party_address": ["location"]}}
+
+
+def test_a_borrower_paragraph_that_holds_the_block_excuses_nothing():
+    """One OCR paragraph for the whole notice: the lead says Borrower, but the
+    lot's own block lies between it and the detail — a plain truncation."""
+    page = ("Borrower: Mr. X, Chennai. " + FD1 +
+            " Bounded by: North by: Vacant Land, South by: 30 feet road.")
+    ex = [_block(page, FD1), _at(page, "boundary", "South by: 30 feet road"),
+          _at(page, "identifier", "30 feet road", kind="door_new")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {"1": ["boundary", "identifier"]}
+
+
 def test_a_property_named_after_its_owner_is_not_a_borrowers_address():
     """"W/o" or "Borrower" earlier on the line does not make the property
     itself an address when the words right before it say property."""
@@ -292,6 +336,53 @@ def test_one_span_tagged_to_several_lots_is_the_nearest_lots():
     assert cov["lots_incomplete"] == {}       # lot 50's block names Kundrathur
     assert cov["lots_wrong_lot"] == {"2": ["location"]}
     assert cov["details"]["2"][0]["in_lot"] == "50"
+
+
+def test_a_detail_trailing_the_previous_lots_block_is_that_lots():
+    """IOB Screenshot-4-7-2026-10197: lot 17 has two parcels and its block
+    stops inside the second; the model tagged parcel 2's boundaries to lot
+    18. Lot 18's block is complete — the finding is a wrong lot, pointing at
+    17, not a gap in 18."""
+    fd17 = "1) 1.64 Ares of land in Survey No 367/14A-16, Kottuvally Village. 2) 1.65 Ares"
+    rest17 = " of land in Survey No 367/14A. BOUNDED: On the South by: Property of Irshad;"
+    fd18 = "EM of 67.58 Ares of land at Sy No. 217/2/1, Marady Village. BOUNDED by: East: Saju"
+    page = fd17 + rest17 + "\n\nRESERVE PRICE: Rs.33,16,000/- " + "x" * 300 + "\n\n" + fd18
+    ex = [_block(page, fd17, lot="17"), _block(page, fd18, lot="18"),
+          _at(page, "boundary", "East: Saju", lot="18"),                  # lot 18's own
+          _at(page, "boundary", "On the South by: Property of Irshad", lot="18")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {}
+    assert cov["lots_wrong_lot"] == {"18": ["boundary"]}
+    assert cov["details"]["18"] == [{"kind": "wrong_lot", "cls": "boundary",
+                                     "text": "On the South by: Property of Irshad",
+                                     "id": None, "in_lot": "17"}]
+
+
+def test_a_detail_nearer_its_own_block_than_the_previous_lots_stays_a_gap():
+    """The same layout, but the detail is lot 18's heading line just above its
+    block: nearer 18 than 17, so it is still 18's — and still outside."""
+    fd17 = "1) 1.64 Ares of land in Survey No 367/14A-16, Kottuvally Village."
+    fd18 = "EM of 67.58 Ares of land at Sy No. 217/2/1, Marady Village."
+    page = fd17 + " " + "x" * 300 + "\n\nLot 18: Sy No. 217/2/1 and 218/1 " + fd18
+    ex = [_block(page, fd17, lot="17"), _block(page, fd18, lot="18"),
+          _at(page, "identifier", "218/1", lot="18", kind="survey_new")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_wrong_lot"] == {}
+    assert cov["lots_incomplete"] == {"18": ["identifier"]}
+
+
+def test_a_detail_after_the_lots_own_block_is_still_its_truncation():
+    """Lot 17's parcel-2 boundary tagged to lot 17: the block before it is
+    its own, so this is the real gap the check exists for."""
+    fd17 = "1) 1.64 Ares of land in Survey No 367/14A-16, Kottuvally Village. 2) 1.65 Ares"
+    rest17 = " of land in Survey No 367/14A. BOUNDED: On the South by: Property of Irshad;"
+    fd18 = "EM of 67.58 Ares of land at Sy No. 217/2/1, Marady Village."
+    page = fd17 + rest17 + "\n\n" + "x" * 300 + "\n\n" + fd18
+    ex = [_block(page, fd17, lot="17"), _block(page, fd18, lot="18"),
+          _at(page, "boundary", "On the South by: Property of Irshad", lot="17")]
+    cov = full_description_coverage(ex, page)
+    assert cov["lots_incomplete"] == {"17": ["boundary"]}
+    assert cov["lots_wrong_lot"] == {}
 
 
 def test_a_lots_only_village_stated_for_several_lots_is_shared_not_wrong():
