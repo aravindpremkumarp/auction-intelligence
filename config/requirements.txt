@@ -53,3 +53,6 @@ jinja2>=3.1,<4
 # (see docs/marketing/channel-research.md).
 instaloader>=4.14,<5
 tweepy>=4.16,<5
+
+# scripts/load_habitations reads the TNRD habitation workbook (.xlsx).
+openpyxl>=3.1,<4

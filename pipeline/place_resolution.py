@@ -704,6 +704,10 @@ class Gazetteer:
     #: mapping (scripts/load_gram_panchayats). A village can sit under two
     #: panchayats, so this is a list of pairs, not a property. Optional.
     gram_panchayats: list[tuple[str, str, str]] = field(default_factory=list)
+    #: ``(habitation, gram panchayat code, taluk, village)`` from TNRD's
+    #: habitation database (scripts/load_habitations): the hamlets a notice
+    #: often writes in the village field. Optional.
+    habitations: list[tuple[str, str, str, str]] = field(default_factory=list)
 
     def __post_init__(self):
         self._d: dict[str, str] = {}
@@ -776,6 +780,13 @@ class Gazetteer:
             key = normalize_place(panchayat)
             if key and (village, taluk) in held:
                 self._gp[taluk][key].add(village)
+        # Habitations, per taluk by folded name: {key: {panchayat code: {village}}}.
+        self._hab: dict[str, dict[str, dict[str, set[str]]]] = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(set)))
+        for habitation, gp_code, taluk, village in self.habitations:
+            key = normalize_place(habitation)
+            if key and (village, taluk) in held:
+                self._hab[taluk][key][str(gp_code)].add(village)
         # Sound keys: every village by its English name (the runner-up pool),
         # and the ones with a Tamil name by that (the candidates).
         self._sound_en: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -977,6 +988,31 @@ class Gazetteer:
             return None, []
         t, found = hits[0]
         return t, sorted(found)
+
+    def habitation_villages(self, value: str, taluk: str | None,
+                            district: str | None = None) -> tuple[str | None, list[str]]:
+        """``(taluk, villages)`` of the one gram panchayat holding a habitation
+        named ``value``.
+
+        Inside ``taluk``, or across ``district`` when no taluk is known. A name
+        borne by habitations of two panchayats is refused: hamlet names repeat
+        ("Colony", "Puthur") and the name alone cannot say which.
+        ``(None, [])`` when nothing answers."""
+        key = normalize_place(value or "")
+        if not key:
+            return None, []
+        if taluk:
+            pools = [(taluk, self._hab.get(taluk, {}).get(key) or {})]
+        elif district:
+            pools = [(t, self._hab.get(t, {}).get(key) or {})
+                     for t, d in self.taluks if d == district]
+        else:
+            return None, []
+        hits = [(t, villages) for t, by_gp in pools for villages in by_gp.values()]
+        if len(hits) != 1:
+            return None, []
+        t, villages = hits[0]
+        return t, sorted(villages)
 
     def census_town_twin(self, value: str, taluk: str) -> bool:
         """True when ``value`` is, or names, a census-town row of ``taluk`` —
@@ -1775,6 +1811,7 @@ def _metro_near_twin(gaz: "Gazetteer", key: str) -> bool:
 # to its villages, "one of these", for a person or a later rule to settle.
 
 GRAM_PANCHAYAT_SOURCE = "gram-panchayat"
+HABITATION_SOURCE = "habitation"
 #: Other kinds of local body, which the fold would otherwise read as a gram
 #: panchayat of the same name: a "Panchayat Union" is a block of dozens of
 #: them, and towns, municipalities and corporations are not in this mapping.
@@ -1788,8 +1825,10 @@ def panchayat_place(gaz: "Gazetteer", res: dict, village: str | None,
     (``unmatched`` / ``no-parent-taluk``).
 
     The panchayat field is tried first, then the village field read as a
-    panchayat name. Always ``one-of-parts``, even for a one-village panchayat.
-    Source ``gram-panchayat``."""
+    panchayat name, then the village field read as a habitation — a hamlet of
+    exactly one panchayat (:meth:`Gazetteer.habitation_villages`). Always
+    ``one-of-parts``, even for a one-village panchayat. Source
+    ``gram-panchayat`` or ``habitation``."""
     if (res.get("village") or res.get("village_parts")
             or res.get("village_status") not in ("unmatched", "no-parent-taluk")):
         return res
@@ -1801,6 +1840,12 @@ def panchayat_place(gaz: "Gazetteer", res: dict, village: str | None,
             return {**res, "taluk": taluk, "village_parts": villages,
                     "village_status": VILLAGE_ONE_OF_PARTS,
                     "village_source": GRAM_PANCHAYAT_SOURCE}
+    if village and not _NOT_A_GRAM_PANCHAYAT.search(village):
+        taluk, villages = gaz.habitation_villages(village, res.get("taluk"), res.get("district"))
+        if villages:
+            return {**res, "taluk": taluk, "village_parts": villages,
+                    "village_status": VILLAGE_ONE_OF_PARTS,
+                    "village_source": HABITATION_SOURCE}
     return res
 
 

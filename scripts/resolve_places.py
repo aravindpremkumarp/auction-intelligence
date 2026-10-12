@@ -97,6 +97,10 @@ def load_gazetteer() -> Gazetteer:
         gram_panchayats=nq("""MATCH (v:RevenueVillage)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat),
                                     (v)-[:IN_TALUK]->(t:Taluk)
                               RETURN g.name, t.name, v.name"""),
+        # Hamlets (scripts/load_habitations): "one of these".
+        habitations=nq("""MATCH (h:Habitation)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat)
+                                <-[:IN_GRAM_PANCHAYAT]-(v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
+                          RETURN h.name, g.code, t.name, v.name"""),
     )
 
 

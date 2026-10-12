@@ -267,6 +267,14 @@ def gazetteer() -> Gazetteer:
                     "      (v)-[:IN_TALUK]->(t:Taluk) "
                     "RETURN g.name AS gp, t.name AS taluk, v.name AS village",
                     max_rows=50_000, timeout=120.0)],
+                # Hamlets (scripts/load_habitations): their panchayat's
+                # villages, "one of these".
+                habitations=[(r["h"], r["gp"], r["taluk"], r["village"])
+                             for r in run_read_query(
+                    "MATCH (h:Habitation)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat)"
+                    "<-[:IN_GRAM_PANCHAYAT]-(v:RevenueVillage)-[:IN_TALUK]->(t:Taluk) "
+                    "RETURN h.name AS h, g.code AS gp, t.name AS taluk, v.name AS village",
+                    max_rows=500_000, timeout=180.0)],
             )
             log.info("gazetteer loaded: %d districts, %d taluks, %d villages",
                      len(_GAZ.districts), len(_GAZ.taluks), len(_GAZ.villages))

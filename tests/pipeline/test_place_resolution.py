@@ -1566,3 +1566,44 @@ def test_panchayat_union_and_settled_lots_are_left_alone():
                            "Kadambathur Panchayat Union")["village_parts"] == []
     skipped = _unplaced(status="not-a-revenue-village")
     assert panchayat_place(_gp_gaz(), skipped, "Kadambathur") is skipped
+
+
+# ── Habitations: a hamlet narrows to its one panchayat's villages ───────────
+
+def _hab_gaz() -> Gazetteer:
+    return Gazetteer(
+        districts=["Sivagangai"],
+        taluks=[("Devakottai", "Sivagangai"), ("Karaikudi", "Sivagangai")],
+        villages=[("Kandiyur", "Devakottai", "Sivagangai"),
+                  ("Puliyal", "Devakottai", "Sivagangai"),
+                  ("Kottaiyur", "Karaikudi", "Sivagangai")],
+        habitations=[("Puduvayal", "1001", "Devakottai", "Kandiyur"),
+                     ("Colony", "1001", "Devakottai", "Kandiyur"),
+                     ("Colony", "1002", "Devakottai", "Puliyal"),
+                     ("Colony", "2001", "Karaikudi", "Kottaiyur")],
+    )
+
+
+def _open(taluk="Devakottai", status="unmatched"):
+    return {"district": "Sivagangai", "taluk": taluk, "village": None,
+            "village_parts": [], "village_status": status, "village_source": None}
+
+
+def test_a_hamlet_narrows_to_its_panchayats_villages():
+    from pipeline.place_resolution import panchayat_place
+    out = panchayat_place(_hab_gaz(), _open(), "Puduvayal")
+    assert out["village"] is None and out["village_parts"] == ["Kandiyur"]
+    assert (out["village_status"], out["village_source"]) == ("one-of-parts", "habitation")
+
+
+def test_a_hamlet_name_two_panchayats_share_is_refused():
+    from pipeline.place_resolution import panchayat_place
+    assert panchayat_place(_hab_gaz(), _open(), "Colony")["village_parts"] == []
+
+
+def test_a_hamlet_is_found_across_the_district_only_when_unique():
+    from pipeline.place_resolution import panchayat_place
+    out = panchayat_place(_hab_gaz(), _open(None, "no-parent-taluk"), "Puduvayal")
+    assert out["taluk"] == "Devakottai" and out["village_parts"] == ["Kandiyur"]
+    assert panchayat_place(_hab_gaz(), _open(None, "no-parent-taluk"),
+                           "Colony")["village_parts"] == []
