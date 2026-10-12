@@ -700,6 +700,10 @@ class Gazetteer:
     #: :meth:`village_by_code` reads it: a human verdict naming the code picks
     #: the one the name alone cannot. Optional.
     village_codes: list[tuple[str, str, str]] = field(default_factory=list)
+    #: ``(gram panchayat, taluk, village)`` from LGD's village-to-gram-panchayat
+    #: mapping (scripts/load_gram_panchayats). A village can sit under two
+    #: panchayats, so this is a list of pairs, not a property. Optional.
+    gram_panchayats: list[tuple[str, str, str]] = field(default_factory=list)
 
     def __post_init__(self):
         self._d: dict[str, str] = {}
@@ -765,6 +769,13 @@ class Gazetteer:
         for village, taluk, code in self.village_codes:
             if code and (village, taluk) in held:
                 self._v_codes[(taluk, normalize_place(village))].setdefault(str(code), village)
+        # Gram panchayats, per taluk by folded name: {key: {village, ...}}.
+        # Only villages this gazetteer holds count.
+        self._gp: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+        for panchayat, taluk, village in self.gram_panchayats:
+            key = normalize_place(panchayat)
+            if key and (village, taluk) in held:
+                self._gp[taluk][key].add(village)
         # Sound keys: every village by its English name (the runner-up pool),
         # and the ones with a Tamil name by that (the candidates).
         self._sound_en: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -944,6 +955,28 @@ class Gazetteer:
 
     def taluk_has_villages(self, taluk: str) -> bool:
         return bool(self._v_by_taluk.get(taluk))
+
+    def panchayat_villages(self, value: str, taluk: str | None,
+                           district: str | None = None) -> tuple[str | None, list[str]]:
+        """``(taluk, villages)`` of the gram panchayat named ``value``.
+
+        Looked up inside ``taluk``; with no taluk, across ``district``, and
+        only when exactly one taluk there has a panchayat of that name.
+        Exact fold only. ``(None, [])`` when nothing answers."""
+        key = normalize_place(value or "")
+        if not key:
+            return None, []
+        if taluk:
+            found = self._gp.get(taluk, {}).get(key)
+            return (taluk, sorted(found)) if found else (None, [])
+        if not district:
+            return None, []
+        hits = [(t, found) for t, d in self.taluks if d == district
+                for found in [self._gp.get(t, {}).get(key)] if found]
+        if len(hits) != 1:
+            return None, []
+        t, found = hits[0]
+        return t, sorted(found)
 
     def census_town_twin(self, value: str, taluk: str) -> bool:
         """True when ``value`` is, or names, a census-town row of ``taluk`` —
@@ -1731,6 +1764,44 @@ def _metro_near_twin(gaz: "Gazetteer", key: str) -> bool:
             if other != key and fuzz.ratio(key, other) >= METRO_TWIN_MIN:
                 return True
     return False
+
+
+# ── Gram panchayats ──────────────────────────────────────────────────────────
+# Notices often name the gram panchayat — in a panchayat field, or in the
+# village field itself — rather than the revenue village. A panchayat can hold
+# several villages and a village can sit under two panchayats, and a notice's
+# "village" is as often a hamlet of the panchayat as the village the register
+# files it under. So the panchayat never places a lot outright: it narrows it
+# to its villages, "one of these", for a person or a later rule to settle.
+
+GRAM_PANCHAYAT_SOURCE = "gram-panchayat"
+#: Other kinds of local body, which the fold would otherwise read as a gram
+#: panchayat of the same name: a "Panchayat Union" is a block of dozens of
+#: them, and towns, municipalities and corporations are not in this mapping.
+_NOT_A_GRAM_PANCHAYAT = re.compile(r"\b(?:union|town|municipal\w*|corporation)\b", re.I)
+
+
+def panchayat_place(gaz: "Gazetteer", res: dict, village: str | None,
+                    panchayat: str | None = None) -> dict:
+    """``res`` narrowed to the villages of the gram panchayat the notice names
+    (:meth:`Gazetteer.panchayat_villages`), when nothing placed it
+    (``unmatched`` / ``no-parent-taluk``).
+
+    The panchayat field is tried first, then the village field read as a
+    panchayat name. Always ``one-of-parts``, even for a one-village panchayat.
+    Source ``gram-panchayat``."""
+    if (res.get("village") or res.get("village_parts")
+            or res.get("village_status") not in ("unmatched", "no-parent-taluk")):
+        return res
+    for value in (panchayat, village):
+        if not value or _NOT_A_GRAM_PANCHAYAT.search(value):
+            continue
+        taluk, villages = gaz.panchayat_villages(value, res.get("taluk"), res.get("district"))
+        if villages:
+            return {**res, "taluk": taluk, "village_parts": villages,
+                    "village_status": VILLAGE_ONE_OF_PARTS,
+                    "village_source": GRAM_PANCHAYAT_SOURCE}
+    return res
 
 
 # ── Taluks split since 2011 ──────────────────────────────────────────────────

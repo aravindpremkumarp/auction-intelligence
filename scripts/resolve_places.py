@@ -55,7 +55,7 @@ from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
     Gazetteer, district_fuzzy_place, district_sound_place, load_pin_taluks, load_sro_taluks,
     load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
-    metro_place, neighbour_taluk_place, out_of_area,
+    metro_place, neighbour_taluk_place, out_of_area, panchayat_place,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
@@ -93,6 +93,10 @@ def load_gazetteer() -> Gazetteer:
         village_codes=nq("""MATCH (v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
                             WHERE v.village_code IS NOT NULL
                             RETURN v.name, t.name, v.village_code"""),
+        # Gram panchayats (scripts/load_gram_panchayats): "one of these".
+        gram_panchayats=nq("""MATCH (v:RevenueVillage)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat),
+                                    (v)-[:IN_TALUK]->(t:Taluk)
+                              RETURN g.name, t.name, v.name"""),
     )
 
 
@@ -370,6 +374,7 @@ def run(*, dry_run: bool = False) -> dict:
         res = neighbour_taluk_place(gaz, res, village, neighbours)
         res = lineage_place(gaz, res, village, taluk, lineage)
         res = metro_place(gaz, res, village, district)
+        res = panchayat_place(gaz, res, village)
         # Last, the town the property's own text calls a town: a property
         # inside a town owes no village, and a town inside one taluk gives the
         # taluk the notice left out (place_resolution.town_place).
