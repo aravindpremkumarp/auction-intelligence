@@ -1,23 +1,29 @@
-"""scripts/load_habitations: joining TNRD hamlets to held panchayats."""
-from scripts.load_habitations import _WRITE, plan
+"""scripts/load_habitations: TNRD hamlets flattened to a lookup file."""
+from pipeline.place_resolution import habitation_rows
+from scripts.load_habitations import build
 
 
 def _row(gp, code, name):
     return {"gp_code": gp, "code": code, "name": name}
 
 
-def test_rows_join_on_the_panchayat_code_and_unknown_codes_are_skipped():
-    todo, stats = plan([_row("226332", "1", "Alagapuram"), _row("999999", "1", "X")],
-                       {"226332"})
-    assert [r["name"] for r in todo] == ["Alagapuram"]
-    assert stats["panchayat not in graph"] == 1
+def test_hamlets_group_by_panchayat_code_without_duplicates_or_blanks():
+    out = build([_row("226332", "1", "Alagapuram"), _row("226332", "2", "Colony"),
+                 _row("226332", "2", "Colony"), _row("226333", "1", "")])
+    assert out == {"226332": ["Alagapuram", "Colony"]}
 
 
-def test_duplicates_and_blank_names_are_dropped():
-    todo, stats = plan([_row("1", "1", "A"), _row("1", "1", "A"), _row("1", "2", "")], {"1"})
-    assert len(todo) == 1 and stats["duplicate row"] == 1 and stats["blank row"] == 1
+def test_hamlets_join_the_panchayats_villages_on_the_code():
+    rows = habitation_rows({"226332": ["Colony"]},
+                           [("226332", "Andimadam", "Kuvagam"),
+                            ("226332", "Andimadam", "Vallam"),
+                            ("999999", "Andimadam", "Elsewhere")])
+    assert rows == [("Colony", "226332", "Andimadam", "Kuvagam"),
+                    ("Colony", "226332", "Andimadam", "Vallam")]
 
 
-def test_the_writer_never_creates_a_panchayat():
-    assert "MATCH (g:GramPanchayat {code: row.gp_code})" in _WRITE
-    assert "MERGE (g:GramPanchayat" not in _WRITE
+def test_the_converter_writes_no_graph_nodes():
+    import inspect
+
+    import scripts.load_habitations as m
+    assert "MERGE" not in inspect.getsource(m) and "nq(" not in inspect.getsource(m)

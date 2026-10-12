@@ -69,7 +69,8 @@ from pipeline.obs import get_logger
 from pipeline.place_resolution import (
     Gazetteer, district_fuzzy_place, district_sound_place, load_pin_taluks, load_sro_taluks,
     load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
-    metro_place, neighbour_taluk_place, out_of_area, panchayat_place,
+    habitation_rows, load_habitations, metro_place, neighbour_taluk_place,
+    out_of_area, panchayat_place,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
@@ -267,14 +268,14 @@ def gazetteer() -> Gazetteer:
                     "      (v)-[:IN_TALUK]->(t:Taluk) "
                     "RETURN g.name AS gp, t.name AS taluk, v.name AS village",
                     max_rows=50_000, timeout=120.0)],
-                # Hamlets (scripts/load_habitations): their panchayat's
-                # villages, "one of these".
-                habitations=[(r["h"], r["gp"], r["taluk"], r["village"])
-                             for r in run_read_query(
-                    "MATCH (h:Habitation)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat)"
-                    "<-[:IN_GRAM_PANCHAYAT]-(v:RevenueVillage)-[:IN_TALUK]->(t:Taluk) "
-                    "RETURN h.name AS h, g.code AS gp, t.name AS taluk, v.name AS village",
-                    max_rows=500_000, timeout=180.0)],
+                # Hamlets (lookups/tnrd_habitations.json) joined to the
+                # panchayats' villages: "one of these".
+                habitations=habitation_rows(load_habitations(), [
+                    (r["gp"], r["taluk"], r["village"]) for r in run_read_query(
+                        "MATCH (v:RevenueVillage)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat), "
+                        "      (v)-[:IN_TALUK]->(t:Taluk) "
+                        "RETURN g.code AS gp, t.name AS taluk, v.name AS village",
+                        max_rows=50_000, timeout=120.0)]),
             )
             log.info("gazetteer loaded: %d districts, %d taluks, %d villages",
                      len(_GAZ.districts), len(_GAZ.taluks), len(_GAZ.villages))

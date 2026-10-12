@@ -75,6 +75,23 @@ def _endpoint() -> tuple[str, str]:
     return f"https://{host}/db/{db}/query/v2", auth
 
 
+class QueryError(RuntimeError):
+    """The server ran the statement and refused it (Query API ``errors``)."""
+
+
+def _values(response: dict) -> list[list]:
+    """The rows of a Query API response, or QueryError when it carries errors.
+
+    The API answers HTTP 200 with partial ``data`` *and* an ``errors`` list
+    when a write is refused after it ran — the database's relationship cap, a
+    constraint — so reading ``data`` alone reports a rolled-back write as done.
+    """
+    if response.get("errors"):
+        first = response["errors"][0]
+        raise QueryError(f'{first.get("code")}: {first.get("message")}')
+    return response["data"]["values"]
+
+
 def nq(statement: str, parameters: dict | None = None) -> list[list]:
     url, auth = _endpoint()
     body = json.dumps({"statement": statement,
@@ -87,7 +104,9 @@ def nq(statement: str, parameters: dict | None = None) -> list[list]:
                          "Content-Type": "application/json",
                          "Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=180) as r:
-                return json.load(r)["data"]["values"]
+                return _values(json.load(r))
+        except QueryError:
+            raise  # refused, not flaky: retrying cannot help
         except Exception:
             if attempt == 3:
                 raise

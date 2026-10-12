@@ -55,7 +55,8 @@ from pipeline.place_lineage import classify, needs_review
 from pipeline.place_resolution import (
     Gazetteer, district_fuzzy_place, district_sound_place, load_pin_taluks, load_sro_taluks,
     load_taluk_lineage, load_taluk_neighbours, load_towns, lineage_place,
-    metro_place, neighbour_taluk_place, out_of_area, panchayat_place,
+    habitation_rows, load_habitations, metro_place, neighbour_taluk_place,
+    out_of_area, panchayat_place,
     place_level, property_pin, resolve_place, taluk_hint_place, town_place,
     village_pieces_place,
 )
@@ -97,10 +98,11 @@ def load_gazetteer() -> Gazetteer:
         gram_panchayats=nq("""MATCH (v:RevenueVillage)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat),
                                     (v)-[:IN_TALUK]->(t:Taluk)
                               RETURN g.name, t.name, v.name"""),
-        # Hamlets (scripts/load_habitations): "one of these".
-        habitations=nq("""MATCH (h:Habitation)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat)
-                                <-[:IN_GRAM_PANCHAYAT]-(v:RevenueVillage)-[:IN_TALUK]->(t:Taluk)
-                          RETURN h.name, g.code, t.name, v.name"""),
+        # Hamlets (lookups/tnrd_habitations.json): "one of these".
+        habitations=habitation_rows(load_habitations(), nq(
+            """MATCH (v:RevenueVillage)-[:IN_GRAM_PANCHAYAT]->(g:GramPanchayat),
+                     (v)-[:IN_TALUK]->(t:Taluk)
+               RETURN g.code, t.name, v.name""")),
     )
 
 

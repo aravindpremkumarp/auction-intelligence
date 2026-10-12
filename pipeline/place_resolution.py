@@ -1812,6 +1812,26 @@ def _metro_near_twin(gaz: "Gazetteer", key: str) -> bool:
 
 GRAM_PANCHAYAT_SOURCE = "gram-panchayat"
 HABITATION_SOURCE = "habitation"
+#: TNRD's hamlets by LGD panchayat code (scripts/load_habitations).
+HABITATIONS = Path(__file__).resolve().parent / "lookups" / "tnrd_habitations.json"
+
+
+def load_habitations(path: Path = HABITATIONS) -> dict[str, list[str]]:
+    """``{panchayat code: [habitation, ...]}``, or {} before the file exists."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("panchayats", {})
+    except FileNotFoundError:
+        return {}
+
+
+def habitation_rows(by_gp: dict[str, list[str]],
+                    gp_villages: list[tuple[str, str, str]]) -> list[tuple[str, str, str, str]]:
+    """The ``Gazetteer.habitations`` rows: each hamlet of a panchayat, once per
+    village that panchayat holds. ``gp_villages`` is ``(panchayat code, taluk,
+    village)`` from the graph's IN_GRAM_PANCHAYAT links."""
+    return [(hab, str(code), taluk, village)
+            for code, taluk, village in gp_villages
+            for hab in by_gp.get(str(code), ())]
 #: Other kinds of local body, which the fold would otherwise read as a gram
 #: panchayat of the same name: a "Panchayat Union" is a block of dozens of
 #: them, and towns, municipalities and corporations are not in this mapping.
