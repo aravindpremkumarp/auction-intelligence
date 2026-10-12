@@ -1593,11 +1593,21 @@ SET r.confidence = row.confidence, r.method = row.method
 RETURN count(*) AS linked
 """
 
+# A listing IS one lot, so it is one parcel. Linking it through its notice
+# alone gave every listing the parcel of every sibling lot: 28,664 of 36,075
+# listing→parcel edges pointed at land the listing does not sell, one notice
+# with 50 lots handing each of its listings 50 parcels — and the database's
+# relationship cap was nearly spent on them. Same rule as api.agent3.common
+# .owns_lot: with an IS_LOT edge only that lot's parcel counts; without one,
+# every lot on the notice is the honest fallback.
 _LINK_LISTINGS = """
 MATCH (l:Lot)-[:IS_PARCEL]->(p:Parcel)
 MATCH (l)<-[:HAS_LOT]-(:Document)<-[:HAS_DOCUMENT]-(ap:AuctionProperty)
+WITH l, p, ap, EXISTS { (ap)-[:IS_LOT]->(l) } AS own
+WHERE own OR NOT EXISTS { (ap)-[:IS_LOT]->(:Lot) }
 MERGE (ap)-[r:IS_PARCEL]->(p)
-SET r.confidence = 'via_document', r.method = 'document'
+SET r.confidence = CASE WHEN own THEN 'via_lot' ELSE 'via_document' END,
+    r.method = CASE WHEN own THEN 'is_lot' ELSE 'document' END
 RETURN count(DISTINCT ap) AS listings
 """
 
