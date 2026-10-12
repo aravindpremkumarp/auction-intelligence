@@ -51,13 +51,15 @@ _PENALTY = {"critical": 30, "high": 20, "med": 10, "low": 4}
 # extracted. With it, a mixed corpus can be told apart and re-levelled —
 # `python -m scripts.backfill_extraction_scores` rescores everything behind the
 # current version, with no LLM call.
-SCORE_VERSION = 9   # 4: full_description_incomplete stops charging details
+SCORE_VERSION = 10  # 4: full_description_incomplete stops charging details
                     # that are not a truncation; detail_wrong_lot (med) added
                     # 5: one span tagged to several lots is the nearest lot's
                     # 6: wrong_lot only when the lot has its own such detail
                     # 7: never for a header sentence, a status, or a reviewer's add
                     # 8: a location copy only when it names another village
                     # 9: lot_pairing_off (med) — description vs own reserve/borrower
+                    # 10: a detail after another lot's block is that lot's;
+                    #     a borrower paragraph excuses identifiers too
 # Valid committed possession values (Option A: penalise only present-but-invalid;
 # a blank possession is often correct — the "Constructive/Symbolic/Physical"
 # disjunction has no single answer — so absence is NOT penalised).
@@ -159,6 +161,15 @@ def _alnum(s) -> str:
 #   - a repeat in the notice's "Property address" box or summary table   246
 # The remaining 685 details — boundaries after "bounded by:", a Schedule B / C,
 # the UDS — are the real truncations this check exists for, and stay flagged.
+#
+# A second sweep (2026-10, 510 details on 128 notices still flagged) found two
+# more groups that are no truncation of the flagged lot:
+#   - the detail sits after ANOTHER lot's block, nearer to it than to its
+#     own: a second parcel of that lot the model tagged to the next lot.
+#     The flagged lot's block is complete; the earlier lot's is short  37%
+#   - the detail sits in the borrower / guarantor paragraph, too far from
+#     the word "Borrower" for a 120-char look-back, or is an identifier
+#     (a flat or door number in the borrower's own address)          19%
 
 # Identifier kinds that name a record about the property, not a detail of it.
 _RECORD_KINDS = frozenset({"property_id", "cersai", "sale_deed"})
@@ -166,8 +177,15 @@ _RECORD_TEXT = re.compile(r"property\s*id|cersai", re.I)
 _COORDS = re.compile(r"latitude|longitude|\b\d{1,3}\.\d{4,}\b", re.I)
 _STATUS_TEXT = re.compile(r"possession|encumbrance", re.I)
 # What the text just before a detail says about whose address it is.
-_PARTY_ADDRESS = re.compile(r"residing|\br/o\b|also at|guarantor|borrower", re.I)
+_PARTY_ADDRESS = re.compile(r"residing|\br/o\b|also at|guarantor|borrower|mortgagor", re.I)
 _PROPERTY_WORD = re.compile(r"propert|mortgaged|schedule|item", re.I)
+# A paragraph that opens with the party ("Borrower Name & Address:", "Name of
+# the Borrower/Guarantor/Mortgagor:") lists their addresses, often several,
+# and runs well past a 120-char look-back. How far into it the lead may sit,
+# and how long a paragraph is still a party's address list rather than the
+# whole notice OCR'd as one block.
+_PARTY_LEAD_CHARS = 120
+_PARTY_PARA_CHARS = 1500
 _ADDRESS_BOX = re.compile(
     r"property\s*address|address\s*of\s*(the\s*)?(mortgaged\s*)?property", re.I)
 _TABLE_CELL = re.compile(r"</?t[dh]\b", re.I)
@@ -238,6 +256,41 @@ def _shared_home(span, lot, fd_span, sharers: dict) -> str | None:
     return None if best[0] == lot else best[0]
 
 
+def _preceding_home(span, lot, fd_span, other_blocks) -> str | None:
+    """The lot whose block ends last before this detail, when that is another
+    lot's block and it lies nearer than the detail's own. A notice describes
+    a lot and moves on, so what follows a block is that lot's — its second
+    parcel, its boundaries — until the next block starts. A detail before
+    every block (the header) or nearer its own block is nobody else's."""
+    s, _t = span
+    before = [(y, o) for o, (x, y) in other_blocks if o != lot and y <= s]
+    if not before:
+        return None
+    end, home = max(before)
+    return home if s - end < _gap(span, fd_span) else None
+
+
+def _party_paragraph(source_text: str, s: int, fd_span) -> bool:
+    """Does the paragraph (or table cell) this detail sits in open with the
+    borrower, guarantor or mortgagor, and hold no property word — and not
+    the lot's own block — between that lead and the detail?"""
+    # A paragraph, or a table cell: a notice laid out as a table puts the
+    # borrower's addresses in one cell, so the cell is the paragraph.
+    para_start = 0
+    for mark in ("\n\n", "<td", "<th"):
+        at = source_text.rfind(mark, 0, s)
+        if at >= 0:
+            para_start = max(para_start, at + len(mark))
+    if s - para_start > _PARTY_PARA_CHARS:
+        return False
+    a, b = fd_span
+    if para_start <= a < s:
+        return False                       # the block itself is in this paragraph
+    para = source_text[para_start:s]
+    lead = _PARTY_ADDRESS.search(para[:_PARTY_LEAD_CHARS])
+    return bool(lead) and not _PROPERTY_WORD.search(para[lead.end():])
+
+
 def _village(v) -> str:
     return re.sub(r"[^a-z]", "", str(v or "").lower()).replace("village", "")
 
@@ -267,9 +320,10 @@ def _outside_reason(span, txt, cls, kind, lot, fd, other_blocks, source_text,
                     sharers: dict | None = None):
     """Why a placed detail outside its lot's block is not a truncation, or None
     when it is one. "covered" means the block does hold it after all;
-    "wrong_lot" that it sits in another lot's block, or that the same span is
-    tagged to another lot whose block lies nearer; anything else names the
-    kind of record it is (reported, not scored)."""
+    "wrong_lot" that it sits in another lot's block, that the same span is
+    tagged to another lot whose block lies nearer, or that it follows another
+    lot's block more closely than it precedes its own; anything else names
+    the kind of record it is (reported, not scored)."""
     s, t = span
     a, b = fd["span"]
     # What the detail IS comes first: a possession status or a portal ID is
@@ -288,10 +342,15 @@ def _outside_reason(span, txt, cls, kind, lot, fd, other_blocks, source_text,
         return "covered"                   # straddles the block's edge
     if cls in ("property", "schedule") and t <= a and a - t <= 5:
         return "covered"                   # the heading line right before it
+    if _preceding_home(span, lot, fd["span"], other_blocks):
+        return "wrong_lot"                 # trails another lot's block
     if source_text:
         before = source_text[max(0, s - 120):s]
         if (cls in ("location", "property") and _PARTY_ADDRESS.search(before)
                 and not _PROPERTY_WORD.search(before[-80:])):
+            return "party_address"
+        if (cls in ("location", "property", "identifier")
+                and _party_paragraph(source_text, s, fd["span"])):
             return "party_address"
         if _ADDRESS_BOX.search(before):
             return "address_box"
@@ -424,7 +483,8 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                 elsewhere.add(cls)
                 home = next((o for o, (x, y) in other_blocks
                              if o != li and x <= sp[0] and sp[1] <= y), None) \
-                    or _shared_home(sp, li, fd["span"], sharers)
+                    or _shared_home(sp, li, fd["span"], sharers) \
+                    or _preceding_home(sp, li, fd["span"], other_blocks)
                 details.setdefault(li, []).append(
                     {"kind": "wrong_lot", "cls": cls, "text": raw, "id": eid, "in_lot": home})
             elif why != "covered":
