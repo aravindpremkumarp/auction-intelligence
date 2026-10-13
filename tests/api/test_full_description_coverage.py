@@ -270,6 +270,34 @@ def test_the_fourth_address_in_the_borrower_paragraph_is_excused():
     assert cov["lots_excused"] == {"1": {"party_address": ["identifier", "location"]}}
 
 
+def test_placement_names_where_each_detail_sits():
+    """One verdict per descriptive entity (validators.PLACEMENTS), keyed by
+    id — what apply_extractions.rank_locations orders a lot's places by."""
+    from pipeline.validators import PLACEMENTS
+    para = "Borrower: Mr. X, residing at Anakaputhur village, Chennai-600070."
+    fd2 = "Item 2: vacant site in S.No.88/2, Zuzuvadi Village, Hosur Taluk."
+    page = para + "\n\n" + FD1 + " Also at Ponmeni Village. Bounded by: North: Road.\n\n" + fd2
+    ex = [_block(page, FD1, lot="1"), _block(page, fd2, lot="2"),
+          _at(page, "location", "Ponmeni Village, Madurai South Taluk", lot="1", village="Ponmeni"),
+          _at(page, "location", "Ponmeni Village.", lot="1"),
+          _at(page, "location", "Anakaputhur village, Chennai-600070", lot="1"),
+          _at(page, "boundary", "North: Road", lot="1"),
+          _at(page, "location", "Zuzuvadi Village", lot="1", village="Zuzuvadi"),
+          E("location", None, None, lot="1", text="somewhere"),
+          _at(page, "location", "Hosur Taluk", lot="3")]
+    for i, e in enumerate(ex):
+        e.id = str(i)
+    cov = full_description_coverage(ex, page)
+    assert cov["placement"] == {"2": "inside", "3": "repeated", "4": "party_address",
+                                "5": "outside", "6": "wrong_lot", "7": "ungrounded",
+                                "8": "no_block"}
+    assert set(cov["placement"].values()) <= set(PLACEMENTS)
+    assert {"kind": "party_address", "cls": "location",
+            "text": "Anakaputhur village, Chennai-600070", "id": "4",
+            "in_lot": None} in cov["details"]["1"]
+    assert cov["lots_incomplete"] == {"1": ["boundary"]}
+
+
 def test_the_borrowers_table_cell_is_a_paragraph_too():
     """11e90606: a notice laid out as a table keeps the borrower's addresses
     in one cell, with the lead "Borrower's Name" at the top of the cell."""

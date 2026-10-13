@@ -440,18 +440,26 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
 
     missing_fd, incomplete, unverifiable, wrong_lot, excused = [], {}, {}, {}, {}
     details: dict = {}            # lot -> [{kind, cls, text, id, in_lot}]
+    placement: dict = {}          # entity id -> where it sits (PLACEMENTS)
     for li, items in gran_by_lot.items():
         fd = fd_by_lot.get(li)
         if fd is None or (fd["span"] is None and not fd["text"]):
             missing_fd.append(li)
+            for *_x, eid, _r, _a, _v in items:
+                placement[eid] = "no_block"
             continue
         outside, unchecked, elsewhere, reasons = set(), set(), set(), {}
         for sp, txt, cls, kind, eid, raw, added, village in items:
             by_span = (sp and fd["span"] and fd["span"][0] <= sp[0] <= sp[1] <= fd["span"][1])
-            if by_span or _covered_by_text(txt, cls, fd):
+            if by_span:
+                placement[eid] = "inside"
+                continue
+            if _covered_by_text(txt, cls, fd):
+                placement[eid] = "repeated"
                 continue
             if not (sp and fd["span"]):
                 unchecked.add(cls)     # no span to place it by — see docstring
+                placement[eid] = "ungrounded"
                 continue
             sharers = {o: fd_by_lot[o]["span"] for o in span_lots.get((cls, sp), ())
                        if o != li and fd_by_lot.get(o, {}).get("span")}
@@ -459,6 +467,7 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                                   sharers)
             if why is None:
                 outside.add(cls)       # both placed, and it really is outside
+                placement[eid] = "outside"
                 details.setdefault(li, []).append(
                     {"kind": "incomplete", "cls": cls, "text": raw, "id": eid, "in_lot": None})
             elif why == "wrong_lot" and added:
@@ -466,6 +475,7 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                 # model's mislabel (e.g. the header's possession sentence
                 # selected once per lot).
                 reasons.setdefault("reviewer", set()).add(cls)
+                placement[eid] = "shared"
             elif why == "wrong_lot" and not _has_own(items, sp, cls, kind):
                 # The lot has no detail of this kind but this one: a fact
                 # the notice states once for several lots ("all the
@@ -473,22 +483,37 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
                 # pipeline copies onto each on purpose (gap_fill.
                 # inherit_shared). Sharing, not a mislabel — see _has_own.
                 reasons.setdefault("shared", set()).add(cls)
+                placement[eid] = "shared"
             elif why == "wrong_lot" and cls == "location" and not _names_other_village(
                     items, sp, village):
                 # A location copy that names no village other than the lot's
                 # own adds what the lot's partial location lacks (a taluk, a
                 # sub-registrar office) — complementary, not a mislabel.
                 reasons.setdefault("complements", set()).add(cls)
+                placement[eid] = "shared"
             elif why == "wrong_lot":
                 elsewhere.add(cls)
+                placement[eid] = "wrong_lot"
                 home = next((o for o, (x, y) in other_blocks
                              if o != li and x <= sp[0] and sp[1] <= y), None) \
                     or _shared_home(sp, li, fd["span"], sharers) \
                     or _preceding_home(sp, li, fd["span"], other_blocks)
                 details.setdefault(li, []).append(
                     {"kind": "wrong_lot", "cls": cls, "text": raw, "id": eid, "in_lot": home})
+            elif why == "party_address":
+                # The borrower's or guarantor's own address, tagged to the
+                # lot. Not a short block, so not scored — but listed under
+                # the lot so the reviewer sees it was set aside, and never
+                # the lot's place (apply_extractions.rank_locations).
+                reasons.setdefault(why, set()).add(cls)
+                placement[eid] = "party_address"
+                details.setdefault(li, []).append(
+                    {"kind": "party_address", "cls": cls, "text": raw, "id": eid, "in_lot": None})
             elif why != "covered":
                 reasons.setdefault(why, set()).add(cls)
+                placement[eid] = "excused"
+            else:
+                placement[eid] = "inside"
         if outside:
             incomplete[li] = sorted(outside)
         if unchecked:
@@ -507,7 +532,22 @@ def full_description_coverage(extractions, source_text: str = "") -> dict:
         # Which details, per lot — what the review page lists under a lot's
         # description so a reviewer sees the gap without hunting for it.
         "details": details,
+        # Where every descriptive entity sits, by its id — one of PLACEMENTS.
+        # apply_extractions.rank_locations reads it to choose a lot's place.
+        "placement": placement,
     }
+
+
+#: The verdicts ``full_description_coverage`` gives each descriptive entity,
+#: best evidence first. "inside" and "repeated": the lot's own block holds
+#: it. "shared": a fact the notice states once for several lots, or one a
+#: reviewer placed. "excused": a record about the property (portal ID,
+#: coordinates, a repeat in a table). "outside": placed, and the block stops
+#: short of it. "no_block": the lot has no description to check against.
+#: "ungrounded": no span to check with. "wrong_lot": sits with another lot's
+#: description. "party_address": the borrower's or guarantor's own address.
+PLACEMENTS = ("inside", "repeated", "shared", "excused", "outside", "no_block",
+              "ungrounded", "wrong_lot", "party_address")
 
 
 def validate(extractions, source_text: str = "") -> dict:

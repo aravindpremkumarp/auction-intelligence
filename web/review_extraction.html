@@ -182,6 +182,7 @@
  #keys .kgaps{margin-top:4px;display:flex;flex-direction:column;gap:2px}
  #keys .kgap{display:block;font-size:10.5px;line-height:1.3;color:#92400e;background:#fef3c7;border-radius:4px;padding:2px 4px;cursor:pointer}
  #keys .kgap.wl{color:#5b21b6;background:#ede9fe}
+ #keys .kgap.pa{color:#475569;background:#f1f5f9}
  #keys .kgap:hover{text-decoration:underline}
  #keys td.missing{background:#fee2e2;color:#991b1b}
  #keys td.absent{background:#f1f5f9;color:#64748b;font-style:italic}
@@ -256,6 +257,7 @@
  html.dark #keys td.filled .inh{color:#fcd34d}
  html.dark #keys .kgap{color:#fcd34d;background:#451a03}
  html.dark #keys .kgap.wl{color:#ddd6fe;background:#2e1065}
+ html.dark #keys .kgap.pa{color:#cbd5e1;background:#1e293b}
 </style>
 <div id="wrap">
   <div id="side">
@@ -1048,11 +1050,16 @@ function gapsHtml(lot){
   return `<div class="kgaps">`+g.map(x=>{
     const what=x.kind==="wrong_lot"
       ?`${esc(x.cls)} belongs to ${x.in_lot?`lot ${esc(x.in_lot)}`:"another lot"}`
+      :x.kind==="party_address"
+      ?`${esc(x.cls)} sits in the borrower's address`
       :`description misses ${esc(x.cls)}`;
     const why=x.kind==="wrong_lot"
       ?"this detail is tagged to this lot but sits in or right after another lot's description — the lot number is likely wrong"
+      :x.kind==="party_address"
+      ?"this span sits in the borrower / guarantor paragraph, so it is their address, not the property's — it is not used as the lot's place unless the description names the same village or taluk"
       :"this lot's detail lies outside its description — the description stops short of it";
-    return `<span class="kgap${x.kind==="wrong_lot"?" wl":""}" data-fid="${esc(x.field_id||"")}" title="${esc(why)}\n(click to jump to it)">⚠ ${what}: “${esc(snip(x.text))}”</span>`;
+    const cls=x.kind==="wrong_lot"?" wl":x.kind==="party_address"?" pa":"";
+    return `<span class="kgap${cls}" data-fid="${esc(x.field_id||"")}" title="${esc(why)}\n(click to jump to it)">${x.kind==="party_address"?"∅":"⚠"} ${what}: “${esc(snip(x.text))}”</span>`;
   }).join("")+`</div>`;
 }
 let SHOW_NX=false;
