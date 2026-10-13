@@ -109,8 +109,9 @@ class KeyCell(BaseModel):
 
 class DescriptionGap(BaseModel):
     """A detail of a lot its full_description does not cover
-    (pipeline/validators.full_description_coverage)."""
-    kind: str                        # 'incomplete' | 'wrong_lot'
+    (pipeline/validators.full_description_coverage), or one set aside as the
+    borrower's own address."""
+    kind: str                        # 'incomplete' | 'wrong_lot' | 'party_address'
     cls: str                         # the detail's class: boundary, identifier, ...
     text: str = ""
     field_id: str | None = None      # the entity to jump to

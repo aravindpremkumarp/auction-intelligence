@@ -119,6 +119,102 @@ def test_group_lots_first_non_null_wins():
     assert AX.group_lots(ents)["1"]["fields"]["village"] == "First"
 
 
+# ── rank_locations: the lot's place is the one its description vouches for ──
+
+def _on(page, cls, text, lot="1", **attrs):
+    s = page.index(text)
+    return {"id": f"{cls}-{lot}-{s}", "cls": cls, "text": text, "start": s, "end": s + len(text),
+            "attrs": {"lot_index": lot, **attrs}}
+
+
+FD = ("All that piece and parcel of land in S.No.179/6, Ponmeni Village, "
+      "Madurai South Taluk, measuring 1200 sq.ft.")
+
+
+def test_location_inside_the_description_beats_an_earlier_one_outside():
+    page = "Property Address: Anakaputhur village, Chennai. " + FD
+    ents = [_on(page, "location", "Anakaputhur village, Chennai", village="Anakaputhur"),
+            _on(page, "full_description", FD),
+            _on(page, "location", "Ponmeni Village, Madurai South Taluk",
+                village="Ponmeni", taluk="Madurai South")]
+    f = AX.group_lots(ents)["1"]["fields"]
+    assert (f["village"], f["taluk"]) == ("Ponmeni", "Madurai South")
+
+
+def test_the_borrowers_address_is_never_the_lots_place():
+    """sbi-3-17836800782627: the borrower's fourth address, tagged lot 1 and
+    listed first. With the page it is dropped; the lot's place comes from
+    its description."""
+    para = ("Borrower Name & Address: Mr. Anandan, Address.1) 845, 52nd Street, "
+            "Mathur, Chennai-600 068. Address.4) Flat F-1, Sivasakthi Nagar, "
+            "Thirumullaivoyal Village, Avadi, Chennai - 600 109.")
+    page = para + "\n\nDESCRIPTION OF THE IMMOVABLE PROPERTY: " + FD
+    ents = [_on(page, "location", "Thirumullaivoyal Village, Avadi", village="Thirumullaivoyal"),
+            _on(page, "full_description", FD),
+            _on(page, "location", "Ponmeni Village", village="Ponmeni")]
+    assert AX.group_lots(ents, page)["1"]["fields"]["village"] == "Ponmeni"
+    # The only location a lot has, and it is the borrower's: no place at all
+    # beats the wrong one.
+    alone = [ents[0], ents[1]]
+    assert "village" not in AX.group_lots(alone, page)["1"]["fields"]
+    # Without the page the paragraph cannot be read: the span is merely
+    # outside, so the inside one still wins, and alone it is kept.
+    assert AX.group_lots(ents)["1"]["fields"]["village"] == "Ponmeni"
+    assert AX.group_lots(alone)["1"]["fields"]["village"] == "Thirumullaivoyal"
+
+
+def test_a_borrowers_address_naming_the_lots_own_village_is_kept():
+    """UNIN1775642378671: the borrower lives at the property. The span sits
+    in the borrower paragraph, but the description names the same village,
+    so the lot keeps it — behind any span inside the block."""
+    para = "Borrower: Mr. X, residing at Kabaliparai Village, Ambasamudram Taluk, Tirunelveli District."
+    fd = ("Ambasamudram Taluk, Cherannahadevi Registration District, Mukkudal Sub Registrar "
+          "Office, Kabaliparai Village, Nanjai S.No.45/2, 0.20 Ares.")
+    page = para + "\n\nSchedule: " + fd
+    ents = [_on(page, "location", "Kabaliparai Village, Ambasamudram Taluk, Tirunelveli District",
+                village="Kabaliparai", taluk="Ambasamudram", district="Tirunelveli"),
+            _on(page, "full_description", fd),
+            _on(page, "location", "Cherannahadevi Registration District",
+                registration_district="Cherannahadevi")]
+    f = AX.group_lots(ents, page)["1"]["fields"]
+    assert (f["village"], f["taluk"], f["registration_district"]) == \
+        ("Kabaliparai", "Ambasamudram", "Cherannahadevi")
+
+
+def test_an_ungrounded_location_loses_to_a_placed_one():
+    page = FD
+    loose = {"id": "x", "cls": "location", "text": "", "start": None, "end": None,
+             "attrs": {"lot_index": "1", "village": "Guess"}}
+    ents = [loose, _on(page, "full_description", FD),
+            _on(page, "location", "Ponmeni Village", village="Ponmeni")]
+    assert AX.group_lots(ents)["1"]["fields"]["village"] == "Ponmeni"
+
+
+def test_a_location_in_another_lots_block_is_dropped():
+    fd2 = "Item 2: vacant site in S.No.88/2, Zuzuvadi Village, Hosur Taluk."
+    page = FD + "\n\n" + fd2
+    ents = [_on(page, "full_description", FD, lot="1"),
+            _on(page, "full_description", fd2, lot="2"),
+            _on(page, "location", "Zuzuvadi Village", lot="1", village="Zuzuvadi"),   # mis-tag
+            _on(page, "location", "Ponmeni Village", lot="1", village="Ponmeni"),
+            _on(page, "location", "Zuzuvadi Village, Hosur Taluk", lot="2",
+                village="Zuzuvadi", taluk="Hosur")]
+    lots = AX.group_lots(ents)
+    assert lots["1"]["fields"]["village"] == "Ponmeni"
+    assert lots["2"]["fields"]["village"] == "Zuzuvadi"
+
+
+def test_rank_locations_keeps_every_other_entity_in_order():
+    page = "Property Address: Anakaputhur village. " + FD + " Bounded by: North by: Road."
+    ents = [_on(page, "location", "Anakaputhur village", village="Anakaputhur"),
+            _on(page, "full_description", FD),
+            _on(page, "boundary", "North by: Road", side="north"),
+            _on(page, "location", "Ponmeni Village", village="Ponmeni")]
+    out = AX.rank_locations(ents)
+    assert [e["cls"] for e in out] == ["full_description", "boundary", "location", "location"]
+    assert out[2]["attrs"]["village"] == "Ponmeni"      # inside first, outside last
+
+
 def test_group_lots_carries_its_own_index():
     """lot_index travels with the lot record through match_lots_to_listings
     unchanged — it's what write_lot_matches uses to rebuild the SAME

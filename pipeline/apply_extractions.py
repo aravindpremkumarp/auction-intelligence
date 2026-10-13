@@ -74,6 +74,7 @@ from pipeline.property_taxonomy import (
 )
 from pipeline.resolution_review import lot_match_key
 from pipeline.text_overlap import description_overlap
+from pipeline.validators import _alnum, full_description_coverage, shim_stored
 
 log = get_logger(__name__)
 
@@ -273,19 +274,81 @@ def _id_tokens(text: str) -> set[str]:
 
 
 
-def group_lots(entities: list[dict]) -> dict[str, dict]:
+#: How much a location span's placement (validators.PLACEMENTS) is worth when
+#: a lot has several and `group_lots` must pick whose village to keep. Lower
+#: wins; spans of one tier keep their notice order, so a second span inside
+#: the block still adds the taluk the first one lacked.
+_LOCATION_TIER = {"inside": 0, "repeated": 0, "shared": 1, "excused": 1,
+                  "outside": 2, "no_block": 2, "ungrounded": 3}
+#: Placements that are never a lot's place, whatever else it has: the
+#: borrower's own address, or a span that sits with another lot's description.
+_LOCATION_DROP = frozenset({"party_address", "wrong_lot"})
+
+
+def rank_locations(entities: list[dict], source_text: str = "") -> list[dict]:
+    """``entities`` with each lot's location spans ordered by evidence, and
+    the ones that are not its place removed.
+
+    A notice names three addresses — the bank's, the borrower's and the
+    property's — and the model sometimes tags one of the first two as a
+    lot's location. Before this, the first location span won whatever it
+    was. Now a span inside the lot's own description comes first, then one
+    repeated in it, then a shared or excused one, then one placed outside
+    the block, then one with no span at all; a span the validator calls the
+    borrower's address or another lot's is dropped. A sweep of 7,098 lots
+    (2026-10) found 93% already inside or repeated, 5% ungrounded, 79
+    elsewhere and 14 in a borrower paragraph or the bank's header — the
+    last two groups are what this changes.
+
+    One exception to the drop: a span whose village or taluk the lot's own
+    description names is kept, behind the spans inside it. A home-loan
+    borrower lives AT the property, so their address names the same village
+    the schedule does; the span sits in the wrong paragraph, but the fact it
+    carries is the description's own, and dropping it would leave a lot
+    whose block says "Kabaliparai Village" with no village at all.
+
+    ``source_text`` lets the validator read the paragraph a span sits in
+    (the borrower-address test needs it); without it the span tests still
+    apply. Non-location entities keep their order.
+    """
+    placement = full_description_coverage(shim_stored(entities), source_text)["placement"]
+    block: dict[str, str] = {}             # lot -> its description, squashed
+    for e in entities:
+        if isinstance(e, dict) and e.get("cls") == "full_description":
+            li = str((e.get("attrs") or {}).get("lot_index") or "1")
+            block[li] = block.get(li, "") + _alnum(e.get("text"))
+    keyed = []
+    for i, e in enumerate(entities):
+        if not isinstance(e, dict) or e.get("cls") != "location":
+            keyed.append((0, i, e))
+            continue
+        where = placement.get(str(e.get("id") or i), "outside")
+        if where in _LOCATION_DROP:
+            attrs = e.get("attrs") or {}
+            own = block.get(str(attrs.get("lot_index") or "1"), "")
+            if not any(len(_alnum(attrs.get(k))) >= 4 and _alnum(attrs.get(k)) in own
+                       for k in ("village", "taluk")):
+                continue
+            where = "shared"               # the description vouches for it
+        keyed.append((_LOCATION_TIER.get(where, 2), i, e))
+    return [e for _t, _i, e in sorted(keyed, key=lambda k: (k[0], k[1]))]
+
+
+def group_lots(entities: list[dict], source_text: str = "") -> dict[str, dict]:
     """Group grounded entities into per-lot records.
 
     Returns {lot_index: {description, fields{...flat props...}, reserve}}.
     First-non-null wins within a lot (mirrors the merge policy elsewhere in
-    the pipeline); descriptions concatenate in entity order.
+    the pipeline); descriptions concatenate in entity order. Location spans
+    are first ordered by evidence (`rank_locations`), so "first" means the
+    one the lot's own description vouches for, never the borrower's address.
 
     A notice too long for one LangExtract window arrives with its lot_index
     restarted mid-document, which would group two unrelated properties as one
     lot; renumber_window_lots continues the numbering across that reset and
     leaves single-window notices untouched.
     """
-    entities = renumber_window_lots(entities)
+    entities = rank_locations(renumber_window_lots(entities), source_text)
     lots: dict[str, dict] = {}
 
     def lot(li: str) -> dict:
@@ -1033,6 +1096,25 @@ def fetch_work(limit: int | None = None,
         max_rows=20_000, timeout=120.0)
 
 
+def source_text_if_needed(filename: str, ents: list[dict]) -> str:
+    """The notice's markdown, but only when a lot's location sits outside
+    its own description — the one case where `rank_locations` needs to read
+    the paragraph around it (the borrower-address test). Every other lot is
+    judged on spans alone, so the 3,000-notice sweep does not carry 70 MB of
+    text it would never look at."""
+    placement = full_description_coverage(shim_stored(ents))["placement"]
+    outside = {i for i, e in enumerate(ents)
+               if isinstance(e, dict) and e.get("cls") == "location"
+               and placement.get(str(e.get("id") or i)) == "outside"}
+    if not outside:
+        return ""
+    rows = run_read_query(
+        "MATCH (d:Document {filename: $fn}) "
+        "RETURN coalesce(d.stitched_markdown, d.markdown) AS md",
+        {"fn": filename}, max_rows=1, timeout=30.0)
+    return (rows[0].get("md") if rows else None) or ""
+
+
 def fetch_portal_types() -> dict[str, str]:
     """{auction_id: the portal's :PropertyType name}.
 
@@ -1090,7 +1172,8 @@ def explain_documents(filenames: list[str]) -> dict[tuple[str, str], dict]:
         if not ents:
             continue
         listings = [l for l in (w.get("listings") or []) if l.get("aid")]
-        for aid, verdict in explain_lot_match(group_lots(ents), listings).items():
+        lots = group_lots(ents, source_text_if_needed(w["filename"], ents))
+        for aid, verdict in explain_lot_match(lots, listings).items():
             out[(aid, w["filename"])] = verdict
     return out
 
@@ -1626,7 +1709,7 @@ def run(limit: int | None = None, dry_run: bool = False,
         if not ents:
             stats["empty_extraction"] += 1
             continue
-        lots = group_lots(ents)
+        lots = group_lots(ents, source_text_if_needed(w["filename"], ents))
         listings = [l for l in (w.get("listings") or []) if l.get("aid")]
         matches, unmatched = match_lots_to_listings(lots, listings)
         sole = {id(m[0]) for m in sole_claimants(matches)}
