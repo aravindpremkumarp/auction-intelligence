@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from api.neo4j_client import run_query, run_read_query
 from pipeline.absence import AUTO, MUST_HAVE, clear_auto_marks, write_marks
 from pipeline.extraction_ids import carry_corrections
-from pipeline.keep_better import best
+from pipeline.keep_better import best, stale_losses
 from pipeline.key_entities import absent_key, stamp_key_scores, unfound_key
 from pipeline.validators import SCORE_VERSION, validate_stored
 from pipeline.widen_descriptions import widen
@@ -229,6 +229,15 @@ def write_extraction(d: dict, ents: list[dict], batch: int, *, reader: str = "la
             label = "better" if how == "new" else "merged with the stored read"
             print(f"    {fn}: {label} — {', '.join(gains[:6])}" + (" …" if len(gains) > 6 else ""),
                   flush=True)
+        elif st["entities"]:
+            # The text changed, so the stored spans point into a text that is
+            # gone and `best` cannot compare them. That is no free pass: a
+            # read covering fewer key facts per lot, or further from the
+            # reviewer's lot count, is still worse whatever text it read.
+            losses = stale_losses(st["entities"], ents, d.get("expected_lot_count"))
+            if losses:
+                raise KeptExisting(f"not better on the changed text (lost {', '.join(losses)})"
+                                   " — keeping the existing one")
     ents, reordered = in_notice_order(fn, ents, md, d.get("expected_lot_count"))
     if reordered:
         print(f"    {fn}: lots renumbered to the notice's order ({reordered})", flush=True)

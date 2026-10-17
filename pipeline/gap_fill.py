@@ -483,4 +483,6 @@ def fill(md: str, stored: list[dict], read: Callable[..., list[dict]],
             donor.append({**e, "start": s, "end": t,
                           "attrs": {**(e.get("attrs") or {}), "lot_index": lot,
                                     "gap_fill": "true"}})
-    return merge(stored, donor), report
+    # md: a price the short read made up, or took from a sibling lot's line,
+    # is not carried (keep_better.price_doubts)
+    return merge(stored, donor, md), report
