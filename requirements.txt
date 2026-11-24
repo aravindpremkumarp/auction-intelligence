@@ -28,7 +28,7 @@ pyyaml>=6.0,<7
 # handles image cropping. Both stay local imports — the rest of the API
 # only pays the import cost when a reviewer triggers a re-extract.
 PyMuPDF>=1.24,<2
-Pillow>=10.4,<13
+Pillow>=10.4,<14
 
 # Database
 neo4j>=5.26,<7
@@ -63,7 +63,7 @@ python-multipart>=0.0.20,<1
 # LOGFIRE_TOKEN is set (see api/telemetry.py),
 # but the package is installed in prod so the instrumentation is available.
 # The [fastapi] extra adds per-request root spans (opentelemetry asgi/fastapi).
-logfire[fastapi,httpx]>=4,<5
+logfire[fastapi,httpx]>=5.2,<6
 
 # Chat agent v2 (/chat/v2) — the tiered loop: one planning call, parallel
 # graph queries executed in code, one synthesis call. Built on
