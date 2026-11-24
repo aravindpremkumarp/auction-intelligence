@@ -7,7 +7,7 @@ and the PR series on branch `claude/inspiring-curie-frs1rb`.
 
 ## Status (2026-10-03): parked
 
-v2 is switched off (`EXTRACT_READER=langextract` in `render.yaml`); the old
+v2 is switched off (`EXTRACT_READER=langextract` in `.github/workflows/extract.yml`); the old
 reader stays in production. On 11 notices the two readers agreed on 95% of
 key values (732 of 769, `evals/gold_sprint_v1_questions.json`), so v2 did not
 show an accuracy gain worth the switch, and it failed on a 40-lot notice
@@ -52,7 +52,7 @@ EXTRACT_READER=shadow python -m pipeline.load_extractions --limit 30 --workers 6
 NEO4J_HTTP_API=1 python -m scripts.reader_shadow_report
 
 # cutover: every new notice is read by v2
-EXTRACT_READER=v2            # render.yaml, cron auction-extract
+EXTRACT_READER=v2            # .github/workflows/extract.yml
 
 # the failing half of the corpus, through the keep-better gate (dry run first)
 NEO4J_HTTP_API=1 python -m scripts.reread_failing --dry-run

@@ -39,7 +39,7 @@ google-genai>=2.0,<3
 # Structured extraction. LangExtract does the few-shot extraction with source
 # grounding; `openai` is its OpenAI-compatible client, pointed at OpenRouter
 # (LANGEXTRACT_PROVIDER=openrouter, the default — OPENROUTER_API_KEY is set in
-# render.yaml). Needed in prod because the reviewer's ▶ Re-run button runs the
+# the API's env file). Needed in prod because the reviewer's ▶ Re-run button runs the
 # extraction in-process; without it the rerun worker dies with
 # ModuleNotFoundError. Both are lazy imports, so ordinary API requests never
 # pay the (pandas/absl-py) import cost.
@@ -108,5 +108,5 @@ tavily-python>=0.5,<1.0
 # via its S3-compatible API (see pipeline/storage.py). boto3 is imported
 # lazily, so the API only pays the import cost when an archive actually runs,
 # but the package must be installed in prod or the upload silently fails with
-# ModuleNotFoundError. The R2_* env vars are set in render.yaml.
+# ModuleNotFoundError. The R2_* env vars are set in the API's env file.
 boto3>=1.34,<2
