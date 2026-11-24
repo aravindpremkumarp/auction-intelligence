@@ -479,7 +479,7 @@ Every writer of `extraction_json` goes through `pipeline.extraction_store.write_
 | `extraction_prev_json` / `_prev_reader` / `_prev_at` | the read this write replaced — one level of history; `scripts/revert_extraction.py` swaps it back and carries the corrections with it |
 | `extraction_contested` / `_fuzzy` / `_illegible` / `_dropped` | counts of entities in those evidence states (dropped = quotes not on the page, never stored); the queue's **contested / fuzzy / illegible / dropped quotes** pills |
 | `extraction_telemetry_json` | compact field-level telemetry: key facts filled / verified, calls, cost |
-| `extraction_timeline_json` | every dated event `{event, date, quote, lot_index, evidence, source}`; also written as `(:Document)-[:HAS_EVENT]->(:AuctionEvent {filename, event, lot_index, date, evidence, source})` |
+| `extraction_timeline_json` | every dated event `{event, date, quote, lot_index, evidence, source}`; also written as `(:Document)-[:HAS_EVENT]->(:NoticeEvent {filename, event, lot_index, date, evidence, source})` — its own label, because `scripts/build_spine.py` drops every `:AuctionEvent` on each run; `scripts/backfill_notice_events.py` rebuilds them from this property |
 | `extraction_segmentation` | how the lots were cut: `table_row` / `serial` / `numbered` / `price` / `anchors` / `whole` |
 | `extraction_skipped_reason` | `ocr_health` when the OCR gate (`EXTRACT_MIN_OCR_HEALTH`) held the page back; cleared by a write |
 | `extraction_shadow_json` / `_score` / `_judge` / `_telemetry_json` / `_error` / `_seconds` | with `EXTRACT_READER=shadow`: the v2 read kept beside the v1 one, with `keep_better.judge`'s verdict; `scripts/reader_shadow_report.py` aggregates them |

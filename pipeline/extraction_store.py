@@ -19,7 +19,7 @@ overwrites a stored read it:
 Then it stamps what the reader reported: the reader and prompt hash, the
 schema version, the evidence counts the review queue filters on
 (``extraction_contested`` / ``_fuzzy`` / ``_illegible`` / ``_dropped``), the
-compact telemetry, the dated events (``:AuctionEvent``), the run
+compact telemetry, the dated events (``:NoticeEvent``), the run
 (``:ExtractionRun``), ``extraction_text_hash`` (so a re-read of the same text
 is recognisable), and in shadow mode the v2 read beside the v1 one.
 """
@@ -188,17 +188,22 @@ MERGE (d)-[:EXTRACTED_BY]->(run)
 RETURN count(*)
 """
 
+# A notice's dated events are :NoticeEvent — NOT :AuctionEvent. That label is
+# the spine's merged record per auction, and scripts/build_spine.py drops
+# every node carrying it on each run; while the two shared the label, the
+# rebuild wiped the timeline too. `old` is matched without a label so a
+# re-read also clears events written under the former name.
 _EVENTS = """
 UNWIND $fns AS fn
 MATCH (d:Document {filename: fn})
-OPTIONAL MATCH (d)-[:HAS_EVENT]->(old:AuctionEvent)
+OPTIONAL MATCH (d)-[:HAS_EVENT]->(old)
 DETACH DELETE old
 WITH DISTINCT d
 UNWIND $events AS ev
-MERGE (ae:AuctionEvent {filename: d.filename, event: ev.event, lot_index: coalesce(ev.lot_index, '')})
-SET ae.date = ev.date, ae.quote = ev.quote, ae.evidence = ev.evidence, ae.source = ev.source,
-    ae.page = ev.page
-MERGE (d)-[:HAS_EVENT]->(ae)
+MERGE (ne:NoticeEvent {filename: d.filename, event: ev.event, lot_index: coalesce(ev.lot_index, '')})
+SET ne.date = ev.date, ne.quote = ev.quote, ne.evidence = ev.evidence, ne.source = ev.source,
+    ne.page = ev.page
+MERGE (d)-[:HAS_EVENT]->(ne)
 RETURN count(*)
 """
 

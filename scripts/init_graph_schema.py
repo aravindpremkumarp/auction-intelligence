@@ -47,6 +47,9 @@ New labels, grouped by what they model:
   sources      :Media          a listing photo or video from a portal (url)
                :AuctionEvent   the merged record per auction (event_id) —
                                planned, docs/SCHEMA.md "Sources and the spine"
+  provenance   :NoticeEvent    one dated event read off a notice (inspection,
+                               EMD deadline, auction) — never :AuctionEvent,
+                               which build_spine drops and rebuilds every run
 
 :PlaceAlias is also applied as a SECOND label to existing :City and :Area
 nodes by pipeline/resolve_places.py — those keep their own labels and edges,
@@ -160,6 +163,10 @@ INDEXES = [
     # scripts/load_gram_panchayats MERGEs on this
     "CREATE INDEX gram_panchayat_code_idx IF NOT EXISTS "
     "FOR (g:GramPanchayat) ON (g.code)",
+
+    # pipeline/extraction_store MERGEs a notice's dated events on this
+    "CREATE INDEX notice_event_filename_idx IF NOT EXISTS "
+    "FOR (e:NoticeEvent) ON (e.filename)",
 
     # promotion bookkeeping: find what still needs promoting / verifying
     "CREATE INDEX lot_verified_idx IF NOT EXISTS "
