@@ -10,5 +10,4 @@ tests/
 config/
 *.py
 requirements.txt
-render.yaml
 clones/

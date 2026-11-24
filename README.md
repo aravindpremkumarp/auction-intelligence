@@ -625,15 +625,18 @@ Point uptime monitoring at `GET /health/deep`.
 - **Frontend** → **Vercel**, serving `web/` statically (`vercel.json`: CSP,
   cache headers, SPA rewrites for `/chat`, `/property/:id`, `/watchlist`,
   `/dossiers`, `/lab`).
-- **Backend** → **Render** (`render.yaml`): web service `auction-api`
-  (starter plan, Singapore, `pip install -r requirements.lock`,
-  `preDeployCommand: python -m scripts.init_auth_schema`, health check
-  `/health`) and cron `auction-extract`.
-- **Database** → **Neo4j Aura**. **Auth** → **Supabase**.
+- **Backend** → Docker on the Oracle Cloud VM behind Caddy at
+  `api.auctionscope.in` (`deploy/api/`: image from `requirements.lock`,
+  `scripts.init_auth_schema` on start, health check `/health`). Deploy new
+  code with `sudo bash /opt/auction-api/src/deploy/api/setup.sh main`.
+- **Extraction** → GitHub Actions `extract.yml`, run by hand after a scrape
+  (scheduled runs only when `EXTRACT_SCHEDULE_ENABLED=true`).
+- **Database** → self-hosted **Neo4j Community** on the same VM
+  (`deploy/neo4j/`). **Auth** → **Supabase**.
   **Files** → **Cloudflare R2**. **Payments** → **Razorpay**.
   **Tracing** (optional) → **Logfire** / any OTLP backend.
 
-Browser page loads on `api.auctionscope.in` or `*.onrender.com` are
+Browser page loads on `api.auctionscope.in` are
 301-redirected to `www.auctionscope.in` so the Supabase session lives on one
 origin; API routes answer on every host.
 
@@ -642,8 +645,8 @@ origin; API routes answer on every host.
 ## Dependencies
 
 - `requirements.txt` — production ranges (`>=x,<next-major`).
-- `requirements.lock` — fully pinned transitive lock used by Render and CI;
+- `requirements.lock` — fully pinned transitive lock used by the API image and CI;
   regenerate after editing `requirements.txt` (steps in the lock's header).
 - `config/requirements.txt` — full local-dev set (scraping, OCR, reports,
   evals).
-- Python 3.11 in production and CI (`render.yaml`, `ci.yml`).
+- Python 3.11 in production and CI (`deploy/api/Dockerfile`, `ci.yml`).

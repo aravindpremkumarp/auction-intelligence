@@ -34,7 +34,8 @@ wall time.
 Run:  NEO4J_HTTP_API=1 LANGEXTRACT_PROVIDER=openrouter \
         python -m pipeline.load_extractions --limit 50 --workers 24
 
-Scheduled: render.yaml's `auction-extract` cron runs this every 6 hours with
+Scheduled: .github/workflows/extract.yml runs this (by hand, or every 6 hours
+when EXTRACT_SCHEDULE_ENABLED=true) with
 ``--max-seconds`` set below that gap, so each firing takes whatever is still
 pending and ends before the next one starts. Nothing else is needed to drain a
 backlog — a page is selected while it has no extraction_json, and a page the

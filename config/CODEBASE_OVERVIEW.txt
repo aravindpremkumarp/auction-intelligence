@@ -17,7 +17,8 @@ and captures user feedback on investment opportunities.
 
 - `README.md` — Quick-start, deployment, project map.
 - `requirements.txt` — Runtime deps for Render web service (slim).
-- `render.yaml` — Render deployment config (FastAPI backend).
+- `deploy/api/` — API deployment on the Oracle VM (Docker + Caddy).
+- `deploy/neo4j/` — self-hosted Neo4j Community on the same VM.
 - `vercel.json` — Vercel deployment config (static `web/` frontend).
 - `.env.example` — Template for local secrets (OpenRouter, Neo4j Aura,
   FindAuction scraping creds). Never commit the filled-in `.env`.
@@ -340,9 +341,9 @@ See `domain_ontology.yaml` for the full property-level schema.
 - **Frontend** → Vercel (serves `web/` as a static site; config in
   `vercel.json`). The production API base URL is hard-coded in
   `web/index.html`.
-- **Backend** → Render Python web service (config in `render.yaml`,
-  installs the slim root `requirements.txt`).
-- **Database** → Neo4j Aura (hosted).
+- **Backend** → Docker on the Oracle VM (`deploy/api/`, installs
+  `requirements.lock`).
+- **Database** → Neo4j Community on the same VM (`deploy/neo4j/`).
 
 ## Typical End-to-End Run
 

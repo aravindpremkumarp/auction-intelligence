@@ -1,6 +1,6 @@
 """A capped run hands the machine back without losing a page.
 
-`--max-seconds` exists for the scheduled runner (render.yaml's auction-extract
+`--max-seconds` exists for the scheduled runner (.github/workflows/extract.yml
 cron): it stops STARTING documents past the cap so two firings never work the
 same queue. Pages it never started keep no extraction, so the next run selects
 them again.
