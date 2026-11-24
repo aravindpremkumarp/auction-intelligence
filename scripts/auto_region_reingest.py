@@ -43,7 +43,7 @@ from pipeline.stitch_refresh import refresh_stitches
 
 SOURCE_PROXY = os.environ.get(
     "NOTICE_SOURCE_PROXY",
-    "https://auction-api-w68b.onrender.com/review/notice/{}/source")
+    "https://api.auctionscope.in/review/notice/{}/source")
 DOCS_PER_MINERU_BATCH = 4        # regions of ~4 docs per batch (8-12 files)
 
 
