@@ -13,9 +13,10 @@ WORKDIR /app
 COPY requirements.lock .
 RUN pip install -r requirements.lock
 
-COPY . .
-
 RUN useradd --system --uid 10001 app
+# The app writes under /app at runtime (reports/, caches), so it owns the tree.
+COPY --chown=app:app . .
+RUN chown app:app /app
 USER app
 
 EXPOSE 8000
