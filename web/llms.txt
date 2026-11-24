@@ -14,8 +14,8 @@ The product's differentiator is AI evaluation: a user can ask, in plain language
 
 ## Live data
 
-- [Auction statistics](https://auction-api-w68b.onrender.com/stats): current totals — total tracked auctions, upcoming (live) auctions, and a generated-at timestamp. Use this for real-time counts instead of any number cached elsewhere.
-- [Properties API](https://auction-api-w68b.onrender.com/properties): queryable live auction records (filter by district, sort by upcoming). This is the source of truth behind every page on the site.
+- [Auction statistics](https://api.auctionscope.in/stats): current totals — total tracked auctions, upcoming (live) auctions, and a generated-at timestamp. Use this for real-time counts instead of any number cached elsewhere.
+- [Properties API](https://api.auctionscope.in/properties): queryable live auction records (filter by district, sort by upcoming). This is the source of truth behind every page on the site.
 
 ## What AuctionScope covers
 

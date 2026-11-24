@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: write
     env:
-      API: https://auction-api-w68b.onrender.com
+      API: https://api.auctionscope.in
       TOKEN: ${{ secrets.FEEDBACK_RESOLVE_TOKEN }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

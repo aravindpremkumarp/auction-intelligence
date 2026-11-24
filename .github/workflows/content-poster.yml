@@ -51,7 +51,7 @@ permissions:
   issues: write
 
 env:
-  API_BASE: https://auction-api-w68b.onrender.com
+  API_BASE: https://api.auctionscope.in
   AGENTS_ENABLED: ${{ vars.AGENTS_ENABLED || 'true' }}
   POSTER_WORK_DIR: .poster_work
 

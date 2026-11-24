@@ -14,7 +14,7 @@ jobs:
         env:
           BODY: ${{ github.event.pull_request.body }}
           TOKEN: ${{ secrets.FEEDBACK_RESOLVE_TOKEN }}
-          API: https://auction-api-w68b.onrender.com
+          API: https://api.auctionscope.in
         run: |
           if [ -z "$TOKEN" ]; then
             echo "FEEDBACK_RESOLVE_TOKEN secret not set — skipping."

@@ -1,0 +1,32 @@
+# auction-api on the Oracle VM, behind the Caddy that already serves Postiz.
+#
+# Lives in /opt/auction-api (code checkout in ./src). Not published on any host
+# port: Caddy reaches it as auction-api:8000 over Caddy's Docker network, and
+# it reaches Neo4j as neo4j:7687 over the neo4j_default network.
+services:
+  api:
+    build:
+      context: ./src
+      dockerfile: deploy/api/Dockerfile
+    image: auction-api:latest
+    container_name: auction-api
+    restart: unless-stopped
+    env_file: api.env
+    mem_limit: 1200m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - caddy
+      - neo4j
+
+networks:
+  caddy:
+    external: true
+    name: ${CADDY_NETWORK:?set CADDY_NETWORK in /opt/auction-api/.env}
+  neo4j:
+    external: true
+    name: neo4j_default

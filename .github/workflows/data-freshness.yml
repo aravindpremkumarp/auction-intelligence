@@ -13,7 +13,7 @@ permissions:
   issues: write
 
 env:
-  API: https://auction-api-w68b.onrender.com
+  API: https://api.auctionscope.in
   MAX_AGE_DAYS: 14
 
 jobs:

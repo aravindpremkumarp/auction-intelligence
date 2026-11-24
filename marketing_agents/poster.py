@@ -48,7 +48,7 @@ from pathlib import Path
 
 import httpx
 
-API_BASE_DEFAULT = "https://auction-api-w68b.onrender.com"
+API_BASE_DEFAULT = "https://api.auctionscope.in"
 MODEL_DEFAULT = "deepseek/deepseek-v4-flash"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 PRODUCT_MARKETING_PATH = Path(".agents/product-marketing.md")

@@ -1,0 +1,7 @@
+# The API serves pages from web/ and reads config/ etc. at runtime, so only
+# history, caches and secrets are left out.
+.git
+**/__pycache__
+**/*.pyc
+.env
+*.env
