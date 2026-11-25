@@ -31,7 +31,7 @@ and lots numbered in the notice's order on every save.
 | rules | `reader/consistency.py` | EMD vs reserve, dates, UDS vs parent, extent vs description, span inside its lot → `CONTESTED` |
 | verify | `reader/stability.py` | re-read only uncertain fields; a short key-facts check on every lot; majority vote; disagreement stays `CONTESTED` |
 | receipt | `reader/convert.py`, `reader/provenance.py` | page, block, source, method, evidence word, `inherited_from` on every entity |
-| store | `pipeline/extraction_store.py` | previous read kept, reviewer corrections carried or orphaned (never misapplied), keep-better gate, `:ExtractionRun`, `:AuctionEvent` |
+| store | `pipeline/extraction_store.py` | previous read kept, reviewer corrections carried or orphaned (never misapplied), keep-better gate, `:ExtractionRun`, `:NoticeEvent` |
 
 ## Running it
 

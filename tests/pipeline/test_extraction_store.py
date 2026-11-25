@@ -99,7 +99,10 @@ def test_store_writes_shadow_events_and_marks(monkeypatch):
             "shadow": {"entities": ents, "score": 70, "model": "m2", "judge": {"v2_better": True}}}
     res = ES.write_extraction({"filename": "a.jpg", "md": "Rs.1"}, ents, 5, reader="v2", model="m", meta=meta)
     cyphers = [c for c, _ in captured]
-    assert any("AuctionEvent" in c for c in cyphers) and any("extraction_shadow_json" in c for c in cyphers)
+    assert any("NoticeEvent" in c for c in cyphers) and any("extraction_shadow_json" in c for c in cyphers)
+    # :AuctionEvent is the spine's label — build_spine drops every node that
+    # carries it, so a notice's dated events must never be written under it.
+    assert not any("AuctionEvent" in c for c in cyphers)
     assert res["counts"]["dropped"] == 1
     (fn, m), = marks
     assert "absent:1:possession_type" in m and "unfound:1:reserve_price" in m
