@@ -65,8 +65,80 @@ def setup_driver(download_dir=None, headless=False):
     # Thread-safe driver creation — UC patches the chromedriver binary,
     # so parallel workers must not race each other during patching.
     with _uc_lock:
-        driver = uc.Chrome(options=options, use_subprocess=True, version_main=149)
+        driver = uc.Chrome(options=options, use_subprocess=True,
+                           version_main=installed_chrome_major())
     return driver
+
+
+def installed_chrome_major():
+    """Major version of the installed Chrome, so the driver matches it.
+
+    A hard-coded version broke the weekly run every time Chrome auto-updated.
+    CHROME_VERSION_MAIN overrides the lookup. Returns None when Chrome can't be
+    found, which lets undetected-chromedriver detect the version itself.
+    """
+    override = os.environ.get("CHROME_VERSION_MAIN", "").strip()
+    if override.isdigit():
+        return int(override)
+    if os.name == "nt":
+        # Read the version stamped on chrome.exe itself. The install folder can
+        # also hold a staged, not-yet-active update (new_chrome.exe), and the
+        # registry value below only updates when Chrome is next opened.
+        for base in (os.environ.get("ProgramFiles"),
+                     os.environ.get("ProgramFiles(x86)"),
+                     os.environ.get("LOCALAPPDATA")):
+            if not base:
+                continue
+            exe = os.path.join(base, "Google", "Chrome", "Application", "chrome.exe")
+            major = _windows_file_major_version(exe)
+            if major:
+                return major
+        try:
+            import winreg
+            for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    with winreg.OpenKey(hive, r"Software\Google\Chrome\BLBeacon") as key:
+                        version, _ = winreg.QueryValueEx(key, "version")
+                    return int(str(version).split(".")[0])
+                except (OSError, ValueError):
+                    continue
+        except ImportError:
+            pass
+    for cmd in ("google-chrome", "chromium", "chrome"):
+        try:
+            out = subprocess.run([cmd, "--version"], capture_output=True,
+                                 text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        m = re.search(r"(\d+)\.\d+", out)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _windows_file_major_version(path):
+    """Major part of a Windows .exe's file version, or None."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        ver = ctypes.windll.version
+        size = ver.GetFileVersionInfoSizeW(path, None)
+        if not size:
+            return None
+        buf = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(path, 0, size, buf):
+            return None
+        info = ctypes.c_void_p()
+        length = wintypes.UINT()
+        if not ver.VerQueryValueW(buf, "\\", ctypes.byref(info), ctypes.byref(length)):
+            return None
+        # VS_FIXEDFILEINFO: dwFileVersionMS is the 3rd DWORD; its high word is the major.
+        file_version_ms = ctypes.cast(info, ctypes.POINTER(wintypes.DWORD))[2]
+        return (file_version_ms >> 16) or None
+    except (OSError, AttributeError):
+        return None
 
 def notify_cloudflare_block():
     """

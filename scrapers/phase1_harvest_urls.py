@@ -7,7 +7,11 @@ Saves new (not-yet-scraped) URLs into data/pending_urls.txt.
 Run this first, then run phase2_scrape_details.py.
 
 Usage:
-    python scrapers/phase1_harvest_urls.py
+    python scrapers/phase1_harvest_urls.py                 # Tamil Nadu listings
+    python scrapers/phase1_harvest_urls.py <listing-url>   # any other listing page
+
+The listing URL can also come from PHASE1_START_URL. Use
+https://www.eauctionsindia.com/live-properties for all of India.
 """
 
 import os
@@ -23,8 +27,10 @@ import utils
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 # ── Config ──────────────────────────────────────────────────────────────────
-START_URL       = "https://www.eauctionsindia.com/live-properties"
-BASE_URL        = "https://www.eauctionsindia.com"
+DEFAULT_START_URL = "https://www.eauctionsindia.com/properties-in-tamil-nadu"
+START_URL       = (sys.argv[1] if len(sys.argv) > 1 else
+                   os.environ.get("PHASE1_START_URL") or DEFAULT_START_URL).rstrip("/")
+BASE_URL       = "https://www.eauctionsindia.com"
 PROJECT_ROOT    = os.path.join(os.path.dirname(__file__), "..")
 OUTPUT_JSONL    = os.path.join(PROJECT_ROOT, "data", "live_eauction_data.jsonl")
 PENDING_FILE    = os.path.join(PROJECT_ROOT, "data", "pending_urls.txt")
@@ -47,6 +53,27 @@ def extract_total_count(soup):
     except Exception:
         pass
     return 20000  # safe fallback
+
+
+def page_url_template(soup):
+    """Work out how this listing page links to its page 2.
+
+    /live-properties pages as /live-properties/2, but other listing pages may
+    use ?page=2. Read the page-2 link off page 1 and return a format string
+    with {page}; fall back to the /N style when no such link is found.
+    """
+    path = START_URL.replace(BASE_URL, "")
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if href.startswith("/"):
+            href = BASE_URL + href
+        href = href.replace("://eauctionsindia.com", "://www.eauctionsindia.com")
+        if path not in href:
+            continue
+        for pattern in (r"([?&]page=)2(?=&|$)", r"(/)2(?=[/?]|$)"):
+            if re.search(pattern, href):
+                return re.sub(pattern, r"\g<1>{page}", href, count=1)
+    return START_URL + "/{page}"
 
 
 def cf_wait(driver):
@@ -122,7 +149,9 @@ def main():
 
     soup0       = BeautifulSoup(driver.page_source, "html.parser")
     total_items = extract_total_count(soup0)
-    print(f"Portal reports ~{total_items:,} live auctions.\n", flush=True)
+    print(f"Portal reports ~{total_items:,} live auctions.", flush=True)
+    page_template = page_url_template(soup0)
+    print(f"Listing: {START_URL}  (page N -> {page_template})\n", flush=True)
 
     # ── Pagination loop ──────────────────────────────────────────────────────
     new_urls      = []
@@ -140,7 +169,7 @@ def main():
                 print(">> PAUSED. Delete scraper_pause.lock to resume…", end="\r", flush=True)
                 time.sleep(5)
 
-            list_url = START_URL if page == 1 else f"{START_URL}/{page}"
+            list_url = START_URL if page == 1 else page_template.format(page=page)
 
             elapsed  = time.time() - start_time
             rate     = len(new_urls) / elapsed if elapsed > 0 else 0
